@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#123c48" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Obra em Dia" />
+    <title>Obra em Dia — Controle de Cronograma</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/icon-192.svg" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase/config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">▰</span><span>Obra em Dia</span></div>
+      <div class="project-name" id="project-name"><span class="dot"></span> Nenhum cronograma carregado <small>• importe um arquivo para começar</small></div>
+      <div class="user"><span class="avatar" id="avatar">?</span><span id="user-label">Entre para continuar</span><button id="logout-button" class="button secondary" hidden>Sair</button></div>
+    </header>
+
+    <section id="login-screen" class="login-screen"><form id="login-form" class="login-card"><p class="eyebrow">ACESSO RESTRITO</p><h1>Obra em Dia</h1><p>Entre com o e-mail convidado para ver suas obras.</p><label for="login-email">E-mail</label><input id="login-email" type="email" autocomplete="username" required /><label for="login-password">Senha</label><input id="login-password" type="password" autocomplete="current-password" required /><button class="button primary" type="submit">Entrar</button><p id="login-message" role="status"></p></form></section>
+    <main id="app-main" hidden>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">CONTROLE DE AVANÇO FÍSICO</p>
+          <h1>O cronograma da obra, sempre atualizado.</h1>
+          <p class="subtitle">Carregue seu planejamento, acompanhe as atualizações do engenheiro e baixe o relatório de progresso com cada alteração identificada.</p>
+        </div>
+        <div class="hero-actions">
+
+          <button id="export-button" class="button secondary">Baixar Excel atualizado</button>
+          <p id="import-note">As alterações ficam registradas por obra e por envio.</p>
+        </div>
+      </section>
+
+      <section class="project-toolbar"><label for="project-select">Obra</label><select id="project-select"><option value="">Selecione uma obra</option></select><span id="role-label"></span></section>
+      <section id="admin-tools" class="admin-tools" hidden><div class="admin-tool"><h2>Adicionar cronograma</h2><label for="new-project-name">Nome da obra</label><input id="new-project-name" placeholder="Ex.: Clínica ATTA" /><label for="schedule-file">Arquivo Excel ou CSV</label><input id="schedule-file" type="file" accept=".xlsx,.xls,.csv" /><button id="import-button" class="button primary">Importar obra</button></div><div class="admin-tool"><h2>Atribuir engenheiro</h2><label for="engineer-select">Engenheiro</label><select id="engineer-select"><option value="">Carregando usuários…</option></select><button id="assign-button" class="button secondary">Atribuir à obra selecionada</button><p id="assignment-status">Convide engenheiros em Authentication → Users antes de atribuí-los.</p></div></section>
+      <section id="admin-submissions" class="admin-submissions" hidden><h2>Atualizações recebidas</h2><div id="submission-list"></div></section>      <section class="metrics" aria-label="Resumo do cronograma">
+        <article><span>Avanço planejado</span><strong id="planned-total">61%</strong><div class="track"><i style="width:61%"></i></div><small>até 30 ago 2026</small></article>
+        <article><span>Avanço informado</span><strong id="actual-total">52%</strong><div class="track green"><i id="actual-bar" style="width:52%"></i></div><small id="actual-detail">9 pontos abaixo do planejado</small></article>
+        <article><span>Atividades em atenção</span><strong id="attention-count">3</strong><p class="warning">requerem ação do planejamento</p></article>
+        <article><span>Última atualização</span><strong id="last-update">Hoje, 14:32</strong><p>Eng. Carlos Almeida</p></article>
+      </section>
+
+      <section class="workspace">
+        <div class="section-heading">
+          <div><h2>Atividades do cronograma</h2><p id="table-help">Carregue um arquivo Excel ou CSV para visualizar as atividades.</p></div>
+          <div class="legend"><span><b class="legend-change"></b> Alterado</span><span><b class="legend-late"></b> Atrasado</span></div>
+        </div>
+        <div class="filters">
+          <button class="filter active" data-filter="all">Todas <span id="all-count">8</span></button>
+          <button class="filter" data-filter="changed">Alteradas <span id="changed-count">0</span></button>
+          <button class="filter" data-filter="late">Em atraso <span id="late-count">3</span></button>
+          <input id="search" placeholder="Buscar atividade" aria-label="Buscar atividade" />
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Estrutura / atividade</th><th>% anterior</th><th>Informado pelo engenheiro</th><th>Variação</th></tr></thead>
+            <tbody id="schedule-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="engineer-panel" class="engineer-panel" hidden>
+      <div><b>Visão do engenheiro</b><span>Atualize o avanço executado e envie para o planejamento.</span></div>
+      <button id="send-update" class="button primary">Enviar atualização</button>
+    </div>
+    <div id="toast" role="status"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
