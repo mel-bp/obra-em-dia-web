@@ -1,5 +1,5 @@
 const cfg=window.OBRA_SUPABASE,body=document.querySelector('#schedule-body'),toast=document.querySelector('#toast');
-let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,originalWorkbook=null,originalFileName='';
+let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,originalWorkbook=null,originalFileName='',passwordRecoveryMode=location.hash.includes('type=recovery');
 const $=selector=>document.querySelector(selector),changed=t=>!t.summary&&t.actual!==t.originalActual;
 const esc=v=>String(v??'').replace(/[&<>\'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 function notify(message){toast.textContent=message;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),4000)}
@@ -8,16 +8,49 @@ function find(headers,names){return headers.findIndex(h=>names.some(n=>h===n||h.
 function percent(value){if(value===undefined||value===null||value==='')return 0;const raw=String(value).trim(),hasPercent=raw.includes('%'),source=raw.replace('%',''),normalized=source.includes(',')?source.replace(/\./g,'').replace(',','.'):source,n=Number(normalized);if(!Number.isFinite(n))return 0;return Math.round(Math.max(0,Math.min(100,!hasPercent&&n>=0&&n<=1?n*100:n)))}
 function headerRow(rows){let best={index:-1,score:0};rows.slice(0,30).forEach((row,index)=>{const h=row.map(key),score=['atividade','tarefa','task','nome','eap','wbs','id','resumo','planejado','previsto','concluido','realizado','avanco'].filter(word=>h.some(x=>x.includes(word))).length;if(score>best.score)best={index,score}});return best.score?best.index:-1}
 function setLoginMessage(text,isError=true){$('#login-message').textContent=text;$('#login-message').style.color=isError?'var(--red)':'var(--teal)'}
+function setRecoveryMessage(text,isError=true){const target=passwordRecoveryMode?'#password-message':'#forgot-message';$(target).textContent=text;$(target).style.color=isError?'var(--red)':'var(--teal)'}
+function setLoginView(view){
+  $('#login-form').hidden=view!=='login';
+  $('#forgot-password-form').hidden=view!=='forgot';
+  $('#password-recovery-form').hidden=view!=='recovery';
+  if(view==='forgot'){$('#forgot-email').value=$('#login-email').value;setRecoveryMessage('')}
+  if(view==='recovery')setRecoveryMessage('');
+}
 async function start(){
   if(!window.supabase||!cfg?.url||!cfg?.publishableKey){setLoginMessage('Não consegui carregar a conexão do Supabase. Atualize a página ou confira a configuração.');return}
   db=window.supabase.createClient(cfg.url,cfg.publishableKey);
+  if(passwordRecoveryMode)setLoginView('recovery');
+  db.auth.onAuthStateChange((event,session)=>{
+    if(event==='PASSWORD_RECOVERY'){passwordRecoveryMode=true;setLoginView('recovery');return}
+    if(passwordRecoveryMode)return;
+    if(session?.user)void enterApp(session.user);else leaveApp();
+  });
   const {data:{session}}=await db.auth.getSession();
-  if(session) await enterApp(session.user);
-  db.auth.onAuthStateChange(async(_event,session)=>{if(session?.user)await enterApp(session.user);else leaveApp()});
+  if(session&&!passwordRecoveryMode)await enterApp(session.user);
 }
 async function enterApp(authUser){user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',user.id).maybeSingle();if(error||!p){leaveApp();setLoginMessage('Perfil não encontrado. Execute schema.sql e confirme seu perfil no Supabase.');return}profile=p;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-tools').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'){await loadEngineers();await loadSubmissions()} }
-function leaveApp(){user=null;profile=null;projects=[];tasks=[];selectedProject=null;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';render()}
-$('#login-form').addEventListener('submit',async e=>{e.preventDefault();setLoginMessage('Entrando…',false);const {error}=await db.auth.signInWithPassword({email:$('#login-email').value.trim(),password:$('#login-password').value});if(error)setLoginMessage(error.message);});
+function leaveApp(){user=null;profile=null;projects=[];tasks=[];selectedProject=null;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
+$('#login-form').addEventListener('submit',async e=>{e.preventDefault();setLoginMessage('Entrando…',false);const {error}=await db.auth.signInWithPassword({email:$('#login-email').value.trim(),password:$('#login-password').value});if(error)setLoginMessage('Não foi possível entrar. Confira o e-mail e a senha.');});
+$('#show-forgot-password').onclick=()=>setLoginView('forgot');
+$('#back-to-login').onclick=()=>setLoginView('login');
+$('#forgot-password-form').addEventListener('submit',async e=>{
+  e.preventDefault();const button=$('#send-reset-link');button.disabled=true;setRecoveryMessage('Enviando instruções…',false);
+  const {error}=await db.auth.resetPasswordForEmail($('#forgot-email').value.trim(),{redirectTo:window.location.origin+window.location.pathname});
+  button.disabled=false;
+  if(error){setRecoveryMessage('Não foi possível enviar o e-mail agora. Tente novamente em alguns minutos.');return}
+  setRecoveryMessage('Se esse e-mail estiver cadastrado, você receberá um link para redefinir a senha. Verifique também a caixa de spam.',false);
+});
+$('#password-recovery-form').addEventListener('submit',async e=>{
+  e.preventDefault();const password=$('#new-password').value,confirmation=$('#confirm-password').value;
+  if(password!==confirmation){setRecoveryMessage('As senhas não coincidem.');return}
+  if(password.length<6){setRecoveryMessage('Use uma senha com pelo menos 6 caracteres.');return}
+  const button=$('#save-new-password');button.disabled=true;setRecoveryMessage('Salvando nova senha…',false);
+  const {error}=await db.auth.updateUser({password});
+  button.disabled=false;
+  if(error){setRecoveryMessage('Não foi possível atualizar a senha. Solicite um novo link e tente novamente.');return}
+  passwordRecoveryMode=false;await db.auth.signOut();$('#new-password').value='';$('#confirm-password').value='';
+  setLoginView('login');setLoginMessage('Senha definida com sucesso. Entre com sua nova senha.',false);
+});
 $('#logout-button').onclick=async()=>{await db.auth.signOut();notify('Você saiu do app.')};
 async function loadProjects(preferredId){const {data,error}=await db.from('projects').select('id,name,source_file,created_at').order('name');if(error){notify('Não consegui carregar as obras. '+error.message);return}projects=data||[];const select=$('#project-select');select.innerHTML='<option value="">Selecione uma obra</option>'+projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');const wanted=preferredId||selectedProject||projects[0]?.id||'';if(wanted&&projects.some(p=>p.id===wanted)){select.value=wanted;await loadProject(wanted)}else{selectedProject=null;tasks=[];render()}if(profile?.role==='admin')await loadAssignments()}
 $('#project-select').onchange=()=>loadProject($('#project-select').value);
