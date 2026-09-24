@@ -22,7 +22,25 @@
       <div class="user"><span class="avatar" id="avatar">?</span><span id="user-label">Entre para continuar</span><button id="logout-button" class="button secondary" hidden>Sair</button></div>
     </header>
 
-    <section id="login-screen" class="login-screen"><form id="login-form" class="login-card"><p class="eyebrow">ACESSO RESTRITO</p><h1>Obra em Dia</h1><p>Entre com o e-mail convidado para ver suas obras.</p><label for="login-email">E-mail</label><input id="login-email" type="email" autocomplete="username" required /><label for="login-password">Senha</label><input id="login-password" type="password" autocomplete="current-password" required /><button class="button primary" type="submit">Entrar</button><p id="login-message" role="status"></p></form></section>
+    <section id="login-screen" class="login-screen">
+      <form id="login-form" class="login-card">
+        <p class="eyebrow">ACESSO RESTRITO</p><h1>Obra em Dia</h1><p>Entre com o e-mail convidado para ver suas obras.</p>
+        <label for="login-email">E-mail</label><input id="login-email" type="email" autocomplete="username" required />
+        <label for="login-password">Senha</label><input id="login-password" type="password" autocomplete="current-password" required />
+        <button class="button primary" type="submit">Entrar</button><button id="show-forgot-password" class="text-button" type="button">Esqueci minha senha</button><p id="login-message" role="status"></p>
+      </form>
+      <form id="forgot-password-form" class="login-card" hidden>
+        <p class="eyebrow">RECUPERAÇÃO DE ACESSO</p><h1>Redefinir senha</h1><p>Informe o e-mail da sua conta. Enviaremos um link para criar uma nova senha.</p>
+        <label for="forgot-email">E-mail</label><input id="forgot-email" type="email" autocomplete="email" required />
+        <button id="send-reset-link" class="button primary" type="submit">Enviar link de redefinição</button><button id="back-to-login" class="text-button" type="button">Voltar para entrar</button><p id="password-message" role="status"></p>
+      </form>
+      <form id="password-recovery-form" class="login-card" hidden>
+        <p class="eyebrow">QUASE LÁ</p><h1>Crie sua senha</h1><p>Escolha uma nova senha para acessar o Obra em Dia.</p>
+        <label for="new-password">Nova senha</label><input id="new-password" type="password" autocomplete="new-password" minlength="6" required />
+        <label for="confirm-password">Confirme a nova senha</label><input id="confirm-password" type="password" autocomplete="new-password" minlength="6" required />
+        <button id="save-new-password" class="button primary" type="submit">Salvar nova senha</button><p id="recovery-message" role="status"></p>
+      </form>
+    </section>
     <main id="app-main" hidden>
       <section class="hero">
         <div>
