@@ -23,7 +23,8 @@ async function start(){
   db.auth.onAuthStateChange((event,session)=>{
     if(event==='PASSWORD_RECOVERY'){passwordRecoveryMode=true;setLoginView('recovery');return}
     if(passwordRecoveryMode)return;
-    if(session?.user)void enterApp(session.user);else leaveApp();
+    if(event==='SIGNED_IN'&&session?.user)void enterApp(session.user);
+    else if(event==='SIGNED_OUT')leaveApp();
   });
   const {data:{session}}=await db.auth.getSession();
   if(session&&!passwordRecoveryMode)await enterApp(session.user);
