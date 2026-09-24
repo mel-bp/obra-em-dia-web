@@ -34,7 +34,7 @@ export default {
       const { data: existing, error: existingError } = await ctx.supabaseAdmin
         .from('profiles')
         .select('id,role')
-        .ilike('email', email)
+        .eq('email', email)
         .maybeSingle()
       if (existingError) throw existingError
 
@@ -49,11 +49,15 @@ export default {
           data: { role: 'engineer' },
         })
         if (error) {
-          return Response.json({
-            error: error.message.includes('already') || error.message.includes('registered')
-              ? 'Esse e-mail já possui conta no Supabase, mas o perfil de engenheiro não foi localizado. Confira Authentication → Users.'
-              : 'O Supabase não conseguiu enviar o convite. Confira a configuração de e-mail e tente novamente.',
-          }, { status: 400 })
+          const reason = String(error.code || error.message || '').toLowerCase()
+          const message = reason.includes('email_address_not_authorized') || reason.includes('not authorized')
+            ? 'O SMTP padrão do Supabase só envia para membros da organização. Configure um SMTP próprio em Authentication → SMTP Settings para convidar engenheiros externos.'
+            : reason.includes('over_email_send_rate_limit') || reason.includes('rate limit')
+              ? 'O limite de envio de e-mails do Supabase foi atingido. Aguarde ou configure um SMTP próprio.'
+              : reason.includes('already') || reason.includes('registered')
+                ? 'Esse e-mail já possui conta no Supabase, mas o perfil de engenheiro não foi localizado. Confira Authentication → Users.'
+                : 'O Supabase não conseguiu enviar o convite. Confira a configuração de e-mail e tente novamente.'
+          return Response.json({ error: message }, { status: 400 })
         }
         if (!data.user) throw new Error('O convite foi enviado, mas o Supabase não retornou o usuário.')
         engineerId = data.user.id
