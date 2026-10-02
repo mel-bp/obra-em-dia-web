@@ -31,7 +31,23 @@ async function start(){
 }
 async function enterApp(authUser){user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',user.id).maybeSingle();if(error||!p){leaveApp();setLoginMessage('Perfil não encontrado. Execute schema.sql e confirme seu perfil no Supabase.');return}profile=p;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-tools').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'){await loadEngineers();await loadSubmissions()} }
 function leaveApp(){user=null;profile=null;projects=[];tasks=[];selectedProject=null;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
-$('#login-form').addEventListener('submit',async e=>{e.preventDefault();setLoginMessage('Entrando…',false);const {error}=await db.auth.signInWithPassword({email:$('#login-email').value.trim(),password:$('#login-password').value});if(error)setLoginMessage('Não foi possível entrar. Confira o e-mail e a senha.');});
+$('#login-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!db){setLoginMessage('A conexão de autenticação não foi inicializada. Atualize a página e tente novamente.');return}
+  const button=$('#login-form button[type="submit"]');button.disabled=true;setLoginMessage('Entrando…',false);
+  try{
+    const {error}=await db.auth.signInWithPassword({email:$('#login-email').value.trim(),password:$('#login-password').value});
+    if(error){
+      const code=String(error.code||'').toLowerCase(),message=String(error.message||'').toLowerCase();
+      console.warn('Falha de autenticação Supabase:',code||'sem código');
+      if(code==='over_request_rate_limit'||code==='too_many_requests')setLoginMessage('Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente.');
+      else if(code==='email_not_confirmed')setLoginMessage('A conta ainda não foi ativada. Abra o link de convite recebido por e-mail ou solicite um novo convite ao administrador.');
+      else if(message.includes('failed to fetch')||message.includes('networkerror')||message.includes('fetch failed'))setLoginMessage('Não foi possível conectar ao serviço de autenticação. Verifique sua conexão e tente novamente.');
+      else setLoginMessage('Não foi possível entrar. Confira o e-mail e a senha ou use “Esqueci minha senha” para redefinir o acesso.');
+    }
+  }catch(error){console.error('Erro inesperado no login:',error);setLoginMessage('Não foi possível conectar ao serviço de autenticação. Tente novamente.');}
+  finally{button.disabled=false}
+});
 $('#show-forgot-password').onclick=()=>setLoginView('forgot');
 $('#back-to-login').onclick=()=>setLoginView('login');
 $('#forgot-password-form').addEventListener('submit',async e=>{
