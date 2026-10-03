@@ -55,7 +55,7 @@
         </div>
       </section>
 
-      <section class="project-toolbar"><label for="project-select">Obra</label><select id="project-select"><option value="">Selecione uma obra</option></select><span id="role-label"></span></section>
+      <section class="project-toolbar"><label for="project-select">Obra</label><select id="project-select"><option value="">Selecione uma obra</option></select><button id="open-assign-engineer" class="button secondary" type="button" hidden disabled>Atribuir engenheiro</button><span id="role-label"></span></section>
       <section id="admin-tools" class="admin-tools" hidden>
         <div class="admin-tool admin-project-registration">
           <h2>Projetos</h2><p>Cadastre um projeto e associe os engenheiros responsáveis.</p>
@@ -65,12 +65,6 @@
           <h2>Importar ou atualizar cronograma</h2><p>Selecione a obra acima. O novo cronograma substituirá o anterior e reiniciará os percentuais enviados anteriormente.</p>
           <label for="schedule-file">Cronograma Excel ou CSV</label><input id="schedule-file" type="file" accept=".xlsx,.xls,.csv" />
           <button id="import-button" class="button primary">Importar/atualizar cronograma</button>
-        </div>
-        <div class="admin-tool">
-          <h2>Atribuir engenheiro</h2><label for="engineer-select">Engenheiro</label>
-          <select id="engineer-select"><option value="">Carregando usuários…</option></select>
-          <button id="assign-button" class="button secondary">Atribuir à obra selecionada</button>
-          <p id="assignment-status">Convide engenheiros ao cadastrar o projeto ou atribua contas existentes.</p>
         </div>
       </section>
       <section id="admin-submissions" class="admin-submissions" hidden><h2>Atualizações recebidas</h2><div id="submission-list"></div></section>      <section class="metrics" aria-label="Resumo do cronograma">
@@ -116,6 +110,23 @@
         <button id="add-engineer-row" class="button secondary add-engineer-row" type="button">+ Adicionar engenheiro</button>
         <p id="project-registration-message" class="registration-message" role="status" aria-live="polite"></p>
         <div class="registration-form-actions"><button class="button secondary" type="button" id="cancel-project-registration">Cancelar</button><button id="register-project-button" class="button primary" type="submit">CADASTRO REALIZADO</button></div>
+      </form>
+    </dialog>
+    <dialog id="engineer-assignment-dialog" class="project-registration-dialog" aria-labelledby="assignment-title">
+      <form id="engineer-assignment-form" class="project-registration-form">
+        <div class="registration-dialog-heading"><div><p class="eyebrow">ACESSO AO PROJETO</p><h2 id="assignment-title">Atribuir engenheiro</h2></div><button id="close-engineer-assignment" class="icon-button" type="button" aria-label="Fechar janela">×</button></div>
+        <p class="assignment-project-context">Projeto selecionado: <strong id="assignment-project-name"></strong></p>
+        <div class="registration-engineers-heading"><div><h3>Engenheiro responsável</h3><p>Contas novas recebem o convite para criar uma senha. Contas existentes serão vinculadas a este projeto.</p></div></div>
+        <div id="assignment-engineer-rows" class="engineer-registration-rows">
+          <div class="engineer-registration-row">
+            <label>Nome do engenheiro<input class="registration-engineer-name" type="text" maxlength="120" autocomplete="name" required /></label>
+            <label>E-mail do engenheiro<input class="registration-engineer-email" type="email" maxlength="254" autocomplete="email" required /></label>
+            <button class="button secondary remove-engineer-row" type="button" aria-label="Remover engenheiro" hidden>−</button>
+          </div>
+        </div>
+        <button id="add-assignment-engineer" class="button secondary add-engineer-row" type="button">+ Adicionar engenheiro</button>
+        <p id="assignment-engineer-message" class="registration-message" role="status" aria-live="polite"></p>
+        <div class="registration-form-actions"><button class="button secondary" type="button" id="cancel-engineer-assignment">Cancelar</button><button id="assign-engineers-submit" class="button primary" type="submit">ATRIBUIR ENGENHEIRO</button></div>
       </form>
     </dialog>
     <div id="engineer-panel" class="engineer-panel" hidden>

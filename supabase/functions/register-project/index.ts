@@ -39,10 +39,11 @@ Deno.serve(async (request: Request) => {
     const { data: caller, error: callerError } = await admin.from('profiles').select('role').eq('id', authData.user.id).maybeSingle()
     if (callerError || caller?.role !== 'admin') return json({ error: 'Apenas administradores podem cadastrar projetos e convidar engenheiros.' }, 403)
 
-    let payload: { name?: unknown; engineers?: unknown }
+    let payload: { name?: unknown; projectId?: unknown; engineers?: unknown }
     try { payload = await request.json() } catch { return json({ error: 'Não consegui ler os dados do cadastro.' }, 400) }
+    const targetProjectId = String(payload.projectId || '').trim()
     const projectName = String(payload.name || '').trim()
-    if (!projectName || projectName.length > 180) return json({ error: 'Informe um nome de projeto com até 180 caracteres.' }, 400)
+    if (!targetProjectId && (!projectName || projectName.length > 180)) return json({ error: 'Informe um nome de projeto com até 180 caracteres.' }, 400)
     if (!Array.isArray(payload.engineers) || payload.engineers.length < 1 || payload.engineers.length > 25) return json({ error: 'Informe de 1 a 25 engenheiros responsáveis.' }, 400)
 
     const engineers: Array<{ name: string; email: string }> = []
@@ -57,18 +58,27 @@ Deno.serve(async (request: Request) => {
       engineers.push({ name, email })
     }
 
-    const { data: existingProjects, error: projectsError } = await admin.from('projects').select('id,name,source_file,created_at')
-    if (projectsError) throw projectsError
-    const matching = (existingProjects || []).filter(project => normalizeName(project.name) === normalizeName(projectName))
-      .sort((a, b) => Number(Boolean(b.source_file)) - Number(Boolean(a.source_file)) || (Date.parse(b.created_at || '') || 0) - (Date.parse(a.created_at || '') || 0))
-    let project = matching[0] || null
+    let project: { id: string; name: string; source_file: string | null; created_at: string } | null = null
     let created = false
-    if (!project) {
-      const { data, error } = await admin.from('projects').insert({ name: projectName, created_by: authData.user.id }).select('id,name,source_file,created_at').single()
+    if (targetProjectId) {
+      const { data, error } = await admin.from('projects').select('id,name,source_file,created_at').eq('id', targetProjectId).maybeSingle()
       if (error) throw error
+      if (!data) return json({ error: 'A obra selecionada não foi encontrada. Atualize a lista e tente novamente.' }, 404)
       project = data
-      created = true
+    } else {
+      const { data: existingProjects, error: projectsError } = await admin.from('projects').select('id,name,source_file,created_at')
+      if (projectsError) throw projectsError
+      const matching = (existingProjects || []).filter(item => normalizeName(item.name) === normalizeName(projectName))
+        .sort((a, b) => Number(Boolean(b.source_file)) - Number(Boolean(a.source_file)) || (Date.parse(b.created_at || '') || 0) - (Date.parse(a.created_at || '') || 0))
+      project = matching[0] || null
+      if (!project) {
+        const { data, error } = await admin.from('projects').insert({ name: projectName, created_by: authData.user.id }).select('id,name,source_file,created_at').single()
+        if (error) throw error
+        project = data
+        created = true
+      }
     }
+    if (!project) return json({ error: 'A obra selecionada não foi encontrada. Atualize a lista e tente novamente.' }, 404)
 
     const results: Array<{ name: string; email: string; status: 'invited' | 'associated' | 'error'; message?: string }> = []
     for (const engineer of engineers) {
