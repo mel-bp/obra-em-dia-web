@@ -1,5 +1,5 @@
 const cfg=window.OBRA_SUPABASE,body=document.querySelector('#schedule-body'),toast=document.querySelector('#toast');
-let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,originalWorkbook=null,originalFileName='',dimensionRecoveryCache=new Map(),passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite');
+let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite');
 const $=selector=>document.querySelector(selector),changed=t=>!t.summary&&t.actual!==t.originalActual;
 const esc=v=>String(v??'').replace(/[&<>\'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 function notify(message){toast.textContent=message;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),4000)}
@@ -150,12 +150,17 @@ async function loadProjects(preferredId){
   $('#open-assign-engineer').disabled=!projects.length;
 }
 $('#project-select').onchange=()=>loadProject($('#project-select').value);
-async function recoverActivityDimensions(projectId,sourceFile,activities){
-  const missingLegacyDimensions=(activities||[]).some(activity=>activity.macro===null&&activity.sector===null&&activity.activity_local===null&&activity.source_macro_column===null&&activity.source_sector_column===null&&activity.source_local_column===null);
-  if(!projectId||!sourceFile||!missingLegacyDimensions)return new Map();
+function scheduleDateText(value){
+  if(value instanceof Date&&!Number.isNaN(value.getTime()))return value.toLocaleDateString('pt-BR',{timeZone:'UTC'});
+  const text=String(value??'').trim(),iso=text.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/);
+  return iso?iso[3]+'/'+iso[2]+'/'+iso[1]:text;
+}
+async function recoverScheduleMetadata(projectId,sourceFile,activities){
+  const empty={dimensions:new Map(),plannedFinish:''};
+  if(!projectId||!sourceFile||!(activities||[]).length)return empty;
   const cacheKey=projectId+'/'+sourceFile;
-  if(dimensionRecoveryCache.has(cacheKey))return dimensionRecoveryCache.get(cacheKey);
-  const recovered=new Map();
+  if(scheduleMetadataCache.has(cacheKey))return scheduleMetadataCache.get(cacheKey);
+  const metadata={dimensions:new Map(),plannedFinish:''};
   try{
     const {data:file,error}=await db.storage.from('schedule-files').download(cacheKey);
     if(error||!file)throw error||Error('Arquivo original indisponível.');
@@ -168,14 +173,22 @@ async function recoverActivityDimensions(projectId,sourceFile,activities){
       const headingIndex=headerRow(rows);
       if(headingIndex<0)continue;
       const headers=rows[headingIndex].map(key);
-      const columns={macro:find(headers,['macro']),sector:find(headers,['setor','sector']),local:find(headers,['local','location'])};
-      if(columns.macro<0&&columns.sector<0&&columns.local<0)continue;
+      const columns={
+        macro:find(headers,['macro']),
+        sector:find(headers,['setor','sector']),
+        local:find(headers,['local','location']),
+        finish:find(headers,['termino','finish','enddate'])
+      };
       for(const activity of (activities||[]).filter(item=>item.source_sheet===sheetName)){
         const sourceIndex=Number(activity.source_row);
         if(!Number.isInteger(sourceIndex)||sourceIndex<0)continue;
         const row=rows[sourceIndex];
         if(!row)continue;
-        recovered.set(activity.id,{
+        if(columns.finish>=0&&Number(activity.activity_id)===1){
+          metadata.plannedFinish=scheduleDateText(row[columns.finish]);
+        }
+        if(columns.macro<0&&columns.sector<0&&columns.local<0)continue;
+        metadata.dimensions.set(activity.id,{
           macro:columns.macro<0?'':String(row[columns.macro]??'').trim(),
           sector:columns.sector<0?'':String(row[columns.sector]??'').trim(),
           local:columns.local<0?'':String(row[columns.local]??'').trim(),
@@ -185,19 +198,19 @@ async function recoverActivityDimensions(projectId,sourceFile,activities){
         });
       }
     }
-    dimensionRecoveryCache.set(cacheKey,recovered);
-    return recovered;
+    scheduleMetadataCache.set(cacheKey,metadata);
+    return metadata;
   }catch(error){
-    console.warn('Não foi possível recuperar as dimensões do cronograma original.',error?.message||'');
-    return recovered;
+    console.warn('Não foi possível ler os dados do cronograma original.',error?.message||'');
+    return metadata;
   }
 }
-async function loadProject(projectId){selectedProject=projectId;const project=projects.find(p=>p.id===projectId);if(!project){tasks=[];$('#export-button').disabled=true;$('#send-update').disabled=true;$('#open-assign-engineer').disabled=true;render();return}$('#open-assign-engineer').disabled=false;$('#project-name').innerHTML=`<span class="dot"></span> ${esc(project.name)} <small>• ${project.source_file?'cronograma carregado':'obra'}</small>`;$('#export-button').disabled=!project.source_file;$('#send-update').disabled=true;const {data:activities,error}=await db.from('activities').select('*').eq('project_id',projectId).eq('is_current',true).order('sort_order');if(error){notify('Falha ao carregar atividades: '+error.message);return}const {data:progress,error:progressError}=await db.rpc('latest_schedule_progress',{p_project_id:projectId});if(progressError){notify('Falha ao carregar atualizações: '+progressError.message);return}const latest=progress?.length?{id:progress[0].submission_id,submitted_at:progress[0].submitted_at,submitted_by:progress[0].submitted_by}:null;const values=new Map((progress||[]).map(item=>[item.activity_id,Number(item.actual_pct)]));const recoveredDimensions=await recoverActivityDimensions(projectId,project.source_file,activities||[]);
+async function loadProject(projectId){selectedProject=projectId;const project=projects.find(p=>p.id===projectId);if(!project){tasks=[];$('#export-button').disabled=true;$('#send-update').disabled=true;$('#open-assign-engineer').disabled=true;render();return}$('#open-assign-engineer').disabled=false;$('#project-name').innerHTML=`<span class="dot"></span> ${esc(project.name)} <small>• ${project.source_file?'cronograma carregado':'obra'}</small>`;$('#export-button').disabled=!project.source_file;$('#send-update').disabled=true;const {data:activities,error}=await db.from('activities').select('*').eq('project_id',projectId).eq('is_current',true).order('sort_order');if(error){notify('Falha ao carregar atividades: '+error.message);return}const {data:progress,error:progressError}=await db.rpc('latest_schedule_progress',{p_project_id:projectId});if(progressError){notify('Falha ao carregar atualizações: '+progressError.message);return}const latest=progress?.length?{id:progress[0].submission_id,submitted_at:progress[0].submitted_at,submitted_by:progress[0].submitted_by}:null;const values=new Map((progress||[]).map(item=>[item.activity_id,Number(item.actual_pct)]));const scheduleMetadata=await recoverScheduleMetadata(projectId,project.source_file,activities||[]);const recoveredDimensions=scheduleMetadata.dimensions;plannedFinishDate=scheduleMetadata.plannedFinish;
 tasks=(activities||[]).map(a=>{
   const recovered=recoveredDimensions.get(a.id)||{};
   return {id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),actual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),originalActual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column,macro:a.macro??recovered.macro??'',sector:a.sector??recovered.sector??'',local:a.activity_local??recovered.local??'',sourceMacroColumn:a.source_macro_column??recovered.sourceMacroColumn,sourceSectorColumn:a.source_sector_column??recovered.sourceSectorColumn,sourceLocalColumn:a.source_local_column??recovered.sourceLocalColumn}
 });
-$('#send-update').disabled=!tasks.some(t=>!t.summary);$('#last-update').textContent=latest?new Date(latest.submitted_at).toLocaleString('pt-BR'):'Nenhum envio ainda';$('#table-help').textContent=latest?'Percentuais do envio mais recente.':'Cronograma original; aguardando a primeira atualização.';render()}
+$('#send-update').disabled=!tasks.some(t=>!t.summary);let lastUpdateName='Nenhum envio ainda';if(latest){const {data:authorRows,error:authorError}=await db.rpc('latest_project_update_author',{p_project_id:projectId});if(!authorError)lastUpdateName=authorRows?.[0]?.engineer_name||'Nome não informado';else if(latest.submitted_by===profile?.id)lastUpdateName=profile.display_name||profile.email||'Nome não informado';else console.warn('Não foi possível carregar o nome do responsável pela última atualização.',authorError.message)}$('#last-update').textContent=lastUpdateName;$('#table-help').textContent=latest?'Percentuais do envio mais recente.':'Cronograma original; aguardando a primeira atualização.';render()}
 function render(){
   const q=($('#search')?.value||'').toLowerCase();
   const dimensions=[
@@ -210,8 +223,8 @@ function render(){
   if(head)head.innerHTML='<th>ID</th>'+dimensions.map(column=>'<th>'+column.label+'</th>').join('')+'<th>% ANTERIOR</th><th>% NOVO DIGITÁVEL</th>';
   if(!tasks.length){
     body.innerHTML='<tr><td colspan="'+columnCount+'" class="empty-state">Selecione uma obra para ver as atividades.</td></tr>';
-    ['attention-count','late-count','changed-count','all-count'].forEach(id=>$('#'+id).textContent='0');
-    $('#planned-total').textContent='—';$('#actual-total').textContent='—';$('#actual-detail').textContent='aguardando cronograma';$('#actual-bar').style.width='0%';
+    ['late-count','changed-count','all-count'].forEach(id=>$('#'+id).textContent='0');
+    $('#planned-total').textContent='—';$('#global-bar').style.width='0%';$('#planned-finish').textContent='—';$('#last-update').textContent='Nenhum envio ainda';
     return;
   }
   const visible=tasks.filter(task=>task.name.toLowerCase().includes(q)&&(activeFilter==='all'||activeFilter==='changed'&&changed(task)||activeFilter==='late'&&!task.summary&&task.actual<task.plan));
@@ -226,14 +239,14 @@ function render(){
     cells.push('<td data-label="% NOVO DIGITÁVEL">'+(task.summary?'<span class="not-editable">Não editável</span>':'<input class="actual-input" aria-label="Novo avanço de '+esc(task.name)+'" type="number" inputmode="decimal" min="0" max="100" step="1" value="'+task.actual+'" data-id="'+esc(task.id)+'"/> %')+'</td>');
     return '<tr class="'+(task.summary?'summary-row':'')+' '+(changed(task)?'changed':'')+(late?' late-row':'')+'">'+cells.join('')+'</tr>';
   }).join('')||'<tr><td colspan="'+columnCount+'" class="empty-state">Nenhuma atividade corresponde ao filtro selecionado.</td></tr>';
-  const leaves=tasks.filter(task=>!task.summary),late=leaves.filter(task=>task.actual<task.plan).length,changes=leaves.filter(changed).length,actual=Math.round(leaves.reduce((sum,task)=>sum+task.actual,0)/(leaves.length||1)),plan=Math.round(leaves.reduce((sum,task)=>sum+task.plan,0)/(leaves.length||1));
-  $('#attention-count').textContent=late;$('#late-count').textContent=late;$('#changed-count').textContent=changes;$('#all-count').textContent=tasks.length;
-  $('#actual-total').textContent=actual+'%';$('#planned-total').textContent=plan+'%';$('#actual-bar').style.width=actual+'%';
-  $('#actual-detail').textContent=actual===plan?'em linha com o planejado':Math.abs(plan-actual)+' pontos '+(actual<plan?'abaixo':'acima')+' do planejado';
+  const leaves=tasks.filter(task=>!task.summary),late=leaves.filter(task=>task.actual<task.plan).length,changes=leaves.filter(changed).length,globalActivity=tasks.find(task=>Number(String(task.activityId).trim())===1),globalPercent=globalActivity?Math.round(Number(globalActivity.plan)):null;
+  $('#late-count').textContent=late;$('#changed-count').textContent=changes;$('#all-count').textContent=tasks.length;
+  $('#planned-total').textContent=globalPercent===null?'—':globalPercent+'%';$('#global-bar').style.width=globalPercent===null?'0%':Math.max(0,Math.min(100,globalPercent))+'%';
+  $('#planned-finish').textContent=plannedFinishDate||'—';
 }
 body.addEventListener('change',e=>{if(!e.target.matches('.actual-input'))return;const t=tasks.find(x=>x.id===e.target.dataset.id);if(!t)return;t.actual=Math.max(0,Math.min(100,Number(e.target.value)||0));render()});
 document.querySelectorAll('.filter').forEach(button=>button.onclick=()=>{activeFilter=button.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===button));render()});$('#search').oninput=render;
-$('#send-update').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra antes de enviar.');const items=tasks.filter(t=>!t.summary).map(t=>({activity_id:t.id,actual_pct:t.actual}));const {data,error}=await db.rpc('submit_progress',{target_project:selectedProject,items});if(error)return notify('Não foi possível enviar. '+error.message);tasks.forEach(t=>t.originalActual=t.actual);$('#last-update').textContent=new Date().toLocaleString('pt-BR');$('#table-help').textContent='Atualização enviada e registrada no histórico.';render();notify('Atualização enviada ao planejamento.');};
+$('#send-update').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra antes de enviar.');const items=tasks.filter(t=>!t.summary).map(t=>({activity_id:t.id,actual_pct:t.actual}));const {data,error}=await db.rpc('submit_progress',{target_project:selectedProject,items});if(error)return notify('Não foi possível enviar. '+error.message);tasks.forEach(t=>t.originalActual=t.actual);$('#last-update').textContent=profile?.display_name||profile?.email||'Nome não informado';$('#table-help').textContent='Atualização enviada e registrada no histórico.';render();notify('Atualização enviada ao planejamento.');};
 $('#import-button').onclick=async()=>{
   const button=$('#import-button'),file=$('#schedule-file').files[0],project=projects.find(item=>item.id===selectedProject);
   if(!project)return notify('Selecione o projeto que receberá o cronograma.');

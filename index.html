@@ -10,7 +10,7 @@
     <title>Obra em Dia — Controle de Cronograma</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css?v=sector-highlight-20261003" />
+    <link rel="stylesheet" href="styles.css?v=project-summary-20261003" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase/config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -68,10 +68,9 @@
         </div>
       </section>
       <section id="admin-submissions" class="admin-submissions" hidden><h2>Atualizações recebidas</h2><div id="submission-list"></div></section>      <section class="metrics" aria-label="Resumo do cronograma">
-        <article><span>Avanço planejado</span><strong id="planned-total">61%</strong><div class="track"><i style="width:61%"></i></div><small>até 30 ago 2026</small></article>
-        <article><span>Avanço informado</span><strong id="actual-total">52%</strong><div class="track green"><i id="actual-bar" style="width:52%"></i></div><small id="actual-detail">9 pontos abaixo do planejado</small></article>
-        <article><span>Atividades em atenção</span><strong id="attention-count">3</strong><p class="warning">requerem ação do planejamento</p></article>
-        <article><span>Última atualização</span><strong id="last-update">Hoje, 14:32</strong><p>Eng. Carlos Almeida</p></article>
+        <article><span>% Global</span><strong id="planned-total">—</strong><div class="track"><i id="global-bar" style="width:0%"></i></div><small>percentual da atividade ID 1</small></article>
+        <article><span>Término previsto</span><strong id="planned-finish">—</strong><small>data da coluna TÉRMINO no ID 1</small></article>
+        <article class="metric-author"><span>Última atualização</span><strong id="last-update">Nenhum envio ainda</strong></article>
       </section>
 
       <section class="workspace">
@@ -134,6 +133,6 @@
       <button id="send-update" class="button primary">Enviar atualização</button>
     </div>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=sector-highlight-20261003"></script>
+    <script src="app.js?v=project-summary-20261003"></script>
   </body>
 </html>

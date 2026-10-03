@@ -38,3 +38,11 @@
 .summary-row .activity-name-inline{color:var(--navy);font-weight:750}
 .summary-row .not-editable{color:var(--navy);font-weight:700}
 @media(max-width:600px){.table-wrap tr.summary-row{background:var(--teal-soft)}}
+
+
+.metrics{grid-template-columns:1fr 1fr 1.35fr}
+.metrics .metric-author strong{font-size:clamp(16px,1.7vw,24px);line-height:1.2;overflow-wrap:anywhere}
+.metrics #planned-finish{font-size:clamp(18px,2vw,28px);line-height:1.2;overflow-wrap:anywhere}
+@media(max-width:900px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics .metric-author{grid-column:1/-1}}
+@media(max-width:600px){.metrics{grid-template-columns:1fr 1fr}.metrics .metric-author{grid-column:1/-1}}
+@media(max-width:360px){.metrics{grid-template-columns:1fr}.metrics .metric-author{grid-column:auto}}
