@@ -1,5 +1,5 @@
 const cfg=window.OBRA_SUPABASE,body=document.querySelector('#schedule-body'),toast=document.querySelector('#toast');
-let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,originalWorkbook=null,originalFileName='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite');
+let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,originalWorkbook=null,originalFileName='',dimensionRecoveryCache=new Map(),passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite');
 const $=selector=>document.querySelector(selector),changed=t=>!t.summary&&t.actual!==t.originalActual;
 const esc=v=>String(v??'').replace(/[&<>\'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 function notify(message){toast.textContent=message;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),4000)}
@@ -150,7 +150,54 @@ async function loadProjects(preferredId){
   $('#open-assign-engineer').disabled=!projects.length;
 }
 $('#project-select').onchange=()=>loadProject($('#project-select').value);
-async function loadProject(projectId){selectedProject=projectId;const project=projects.find(p=>p.id===projectId);if(!project){tasks=[];$('#export-button').disabled=true;$('#send-update').disabled=true;$('#open-assign-engineer').disabled=true;render();return}$('#open-assign-engineer').disabled=false;$('#project-name').innerHTML=`<span class="dot"></span> ${esc(project.name)} <small>• ${project.source_file?'cronograma carregado':'obra'}</small>`;$('#export-button').disabled=!project.source_file;$('#send-update').disabled=true;const {data:activities,error}=await db.from('activities').select('*').eq('project_id',projectId).eq('is_current',true).order('sort_order');if(error){notify('Falha ao carregar atividades: '+error.message);return}const {data:progress,error:progressError}=await db.rpc('latest_schedule_progress',{p_project_id:projectId});if(progressError){notify('Falha ao carregar atualizações: '+progressError.message);return}const latest=progress?.length?{id:progress[0].submission_id,submitted_at:progress[0].submitted_at,submitted_by:progress[0].submitted_by}:null;const values=new Map((progress||[]).map(item=>[item.activity_id,Number(item.actual_pct)]));tasks=(activities||[]).map((a,index)=>({id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),actual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),originalActual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column,macro:a.macro||'',sector:a.sector||'',local:a.activity_local||'',sourceMacroColumn:a.source_macro_column,sourceSectorColumn:a.source_sector_column,sourceLocalColumn:a.source_local_column}));$('#send-update').disabled=!tasks.some(t=>!t.summary);$('#last-update').textContent=latest?new Date(latest.submitted_at).toLocaleString('pt-BR'):'Nenhum envio ainda';$('#table-help').textContent=latest?'Percentuais do envio mais recente.':'Cronograma original; aguardando a primeira atualização.';render()}
+async function recoverActivityDimensions(projectId,sourceFile,activities){
+  const missingLegacyDimensions=(activities||[]).some(activity=>activity.macro===null&&activity.sector===null&&activity.activity_local===null&&activity.source_macro_column===null&&activity.source_sector_column===null&&activity.source_local_column===null);
+  if(!projectId||!sourceFile||!missingLegacyDimensions)return new Map();
+  const cacheKey=projectId+'/'+sourceFile;
+  if(dimensionRecoveryCache.has(cacheKey))return dimensionRecoveryCache.get(cacheKey);
+  const recovered=new Map();
+  try{
+    const {data:file,error}=await db.storage.from('schedule-files').download(cacheKey);
+    if(error||!file)throw error||Error('Arquivo original indisponível.');
+    const workbook=XLSX.read(await file.arrayBuffer(),{type:'array',raw:false,cellDates:true});
+    const sheetNames=[...new Set((activities||[]).map(activity=>activity.source_sheet).filter(Boolean))];
+    for(const sheetName of sheetNames){
+      const worksheet=workbook.Sheets[sheetName];
+      if(!worksheet)continue;
+      const rows=XLSX.utils.sheet_to_json(worksheet,{header:1,defval:'',raw:false});
+      const headingIndex=headerRow(rows);
+      if(headingIndex<0)continue;
+      const headers=rows[headingIndex].map(key);
+      const columns={macro:find(headers,['macro']),sector:find(headers,['setor','sector']),local:find(headers,['local','location'])};
+      if(columns.macro<0&&columns.sector<0&&columns.local<0)continue;
+      for(const activity of (activities||[]).filter(item=>item.source_sheet===sheetName)){
+        const sourceIndex=Number(activity.source_row);
+        if(!Number.isInteger(sourceIndex)||sourceIndex<0)continue;
+        const row=rows[sourceIndex];
+        if(!row)continue;
+        recovered.set(activity.id,{
+          macro:columns.macro<0?'':String(row[columns.macro]??'').trim(),
+          sector:columns.sector<0?'':String(row[columns.sector]??'').trim(),
+          local:columns.local<0?'':String(row[columns.local]??'').trim(),
+          sourceMacroColumn:columns.macro<0?null:columns.macro,
+          sourceSectorColumn:columns.sector<0?null:columns.sector,
+          sourceLocalColumn:columns.local<0?null:columns.local
+        });
+      }
+    }
+    dimensionRecoveryCache.set(cacheKey,recovered);
+    return recovered;
+  }catch(error){
+    console.warn('Não foi possível recuperar as dimensões do cronograma original.',error?.message||'');
+    return recovered;
+  }
+}
+async function loadProject(projectId){selectedProject=projectId;const project=projects.find(p=>p.id===projectId);if(!project){tasks=[];$('#export-button').disabled=true;$('#send-update').disabled=true;$('#open-assign-engineer').disabled=true;render();return}$('#open-assign-engineer').disabled=false;$('#project-name').innerHTML=`<span class="dot"></span> ${esc(project.name)} <small>• ${project.source_file?'cronograma carregado':'obra'}</small>`;$('#export-button').disabled=!project.source_file;$('#send-update').disabled=true;const {data:activities,error}=await db.from('activities').select('*').eq('project_id',projectId).eq('is_current',true).order('sort_order');if(error){notify('Falha ao carregar atividades: '+error.message);return}const {data:progress,error:progressError}=await db.rpc('latest_schedule_progress',{p_project_id:projectId});if(progressError){notify('Falha ao carregar atualizações: '+progressError.message);return}const latest=progress?.length?{id:progress[0].submission_id,submitted_at:progress[0].submitted_at,submitted_by:progress[0].submitted_by}:null;const values=new Map((progress||[]).map(item=>[item.activity_id,Number(item.actual_pct)]));const recoveredDimensions=await recoverActivityDimensions(projectId,project.source_file,activities||[]);
+tasks=(activities||[]).map(a=>{
+  const recovered=recoveredDimensions.get(a.id)||{};
+  return {id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),actual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),originalActual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column,macro:a.macro??recovered.macro??'',sector:a.sector??recovered.sector??'',local:a.activity_local??recovered.local??'',sourceMacroColumn:a.source_macro_column??recovered.sourceMacroColumn,sourceSectorColumn:a.source_sector_column??recovered.sourceSectorColumn,sourceLocalColumn:a.source_local_column??recovered.sourceLocalColumn}
+});
+$('#send-update').disabled=!tasks.some(t=>!t.summary);$('#last-update').textContent=latest?new Date(latest.submitted_at).toLocaleString('pt-BR'):'Nenhum envio ainda';$('#table-help').textContent=latest?'Percentuais do envio mais recente.':'Cronograma original; aguardando a primeira atualização.';render()}
 function render(){
   const q=($('#search')?.value||'').toLowerCase();
   const dimensions=[

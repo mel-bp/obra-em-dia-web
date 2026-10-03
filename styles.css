@@ -31,3 +31,10 @@
 /* Layout for activities with optional Excel dimensions. */
 .activity-cell{min-width:230px;vertical-align:top}.activity-cell .task-id{display:block;color:var(--muted);font:11px monospace}.activity-name-inline{display:block;margin-top:5px;font-weight:650;line-height:1.35}.table-wrap th{white-space:normal}.table-wrap th:first-child{min-width:230px}.schedule-dimension{min-width:110px}.table-wrap .late-row .actual-input{border-color:var(--red)}
 @media(max-width:600px){.table-wrap td:not(.activity-cell)::before{content:attr(data-label)}.table-wrap td.activity-cell{display:block!important}.table-wrap td.activity-cell::before{content:none}.activity-cell .task-id{font-size:11px}.activity-name-inline{margin-top:4px}.table-wrap td{overflow-wrap:anywhere}}
+
+
+/* Soft Entrecon green for non-editable summary activities. */
+.summary-row td{background:var(--teal-soft);color:var(--ink);border-bottom-color:rgba(17,118,80,.18)}
+.summary-row .activity-name-inline{color:var(--navy);font-weight:750}
+.summary-row .not-editable{color:var(--navy);font-weight:700}
+@media(max-width:600px){.table-wrap tr.summary-row{background:var(--teal-soft)}}
