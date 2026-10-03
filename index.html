@@ -10,7 +10,7 @@
     <title>Obra em Dia — Controle de Cronograma</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=project-registration-20261003" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase/config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -56,7 +56,23 @@
       </section>
 
       <section class="project-toolbar"><label for="project-select">Obra</label><select id="project-select"><option value="">Selecione uma obra</option></select><span id="role-label"></span></section>
-      <section id="admin-tools" class="admin-tools" hidden><div class="admin-tool"><h2>Cadastrar obra e convidar engenheiros</h2><label for="new-project-name">Nome da obra</label><input id="new-project-name" placeholder="Ex.: Clínica ATTA" /><label for="schedule-file">Cronograma Excel ou CSV</label><input id="schedule-file" type="file" accept=".xlsx,.xls,.csv" /><label for="engineer-emails">E-mails dos engenheiros</label><textarea id="engineer-emails" rows="3" placeholder="engenheiro@empresa.com.br, outro@empresa.com.br"></textarea><small>Separe os e-mails por vírgula, ponto e vírgula ou linha. Cada pessoa será convidada e vinculada a esta obra.</small><button id="import-button" class="button primary">Importar obra e convidar</button></div><div class="admin-tool"><h2>Atribuir engenheiro</h2><label for="engineer-select">Engenheiro</label><select id="engineer-select"><option value="">Carregando usuários…</option></select><button id="assign-button" class="button secondary">Atribuir à obra selecionada</button><p id="assignment-status">Convide engenheiros em Authentication → Users antes de atribuí-los.</p></div></section>
+      <section id="admin-tools" class="admin-tools" hidden>
+        <div class="admin-tool admin-project-registration">
+          <h2>Projetos</h2><p>Cadastre um projeto e associe os engenheiros responsáveis.</p>
+          <button id="open-project-registration" class="button primary" type="button">CADASTRO DE PROJETO</button>
+        </div>
+        <div class="admin-tool">
+          <h2>Importar ou atualizar cronograma</h2><p>Selecione a obra acima. O novo cronograma substituirá o anterior e reiniciará os percentuais enviados anteriormente.</p>
+          <label for="schedule-file">Cronograma Excel ou CSV</label><input id="schedule-file" type="file" accept=".xlsx,.xls,.csv" />
+          <button id="import-button" class="button primary">Importar/atualizar cronograma</button>
+        </div>
+        <div class="admin-tool">
+          <h2>Atribuir engenheiro</h2><label for="engineer-select">Engenheiro</label>
+          <select id="engineer-select"><option value="">Carregando usuários…</option></select>
+          <button id="assign-button" class="button secondary">Atribuir à obra selecionada</button>
+          <p id="assignment-status">Convide engenheiros ao cadastrar o projeto ou atribua contas existentes.</p>
+        </div>
+      </section>
       <section id="admin-submissions" class="admin-submissions" hidden><h2>Atualizações recebidas</h2><div id="submission-list"></div></section>      <section class="metrics" aria-label="Resumo do cronograma">
         <article><span>Avanço planejado</span><strong id="planned-total">61%</strong><div class="track"><i style="width:61%"></i></div><small>até 30 ago 2026</small></article>
         <article><span>Avanço informado</span><strong id="actual-total">52%</strong><div class="track green"><i id="actual-bar" style="width:52%"></i></div><small id="actual-detail">9 pontos abaixo do planejado</small></article>
@@ -84,11 +100,29 @@
       </section>
     </main>
 
+    <dialog id="project-registration-dialog" class="project-registration-dialog" aria-labelledby="registration-title">
+      <form id="project-registration-form" class="project-registration-form">
+        <div class="registration-dialog-heading"><div><p class="eyebrow">NOVO ACESSO</p><h2 id="registration-title">Cadastro de projeto</h2></div><button id="close-project-registration" class="icon-button" type="button" aria-label="Fechar janela">×</button></div>
+        <label class="registration-project-label" for="registration-project-name">Nome do projeto</label>
+        <input id="registration-project-name" type="text" maxlength="180" autocomplete="organization" placeholder="Ex.: Clínica ATTA" required />
+        <div class="registration-engineers-heading"><div><h3>Engenheiro responsável</h3><p>Engenheiros novos receberão o convite para criar a senha. Contas existentes serão vinculadas ao projeto.</p></div></div>
+        <div id="engineer-registration-rows" class="engineer-registration-rows">
+          <div class="engineer-registration-row">
+            <label>Nome do engenheiro<input class="registration-engineer-name" type="text" maxlength="120" autocomplete="name" required /></label>
+            <label>E-mail do engenheiro<input class="registration-engineer-email" type="email" maxlength="254" autocomplete="email" required /></label>
+            <button class="button secondary remove-engineer-row" type="button" aria-label="Remover engenheiro" hidden>−</button>
+          </div>
+        </div>
+        <button id="add-engineer-row" class="button secondary add-engineer-row" type="button">+ Adicionar engenheiro</button>
+        <p id="project-registration-message" class="registration-message" role="status" aria-live="polite"></p>
+        <div class="registration-form-actions"><button class="button secondary" type="button" id="cancel-project-registration">Cancelar</button><button id="register-project-button" class="button primary" type="submit">CADASTRO REALIZADO</button></div>
+      </form>
+    </dialog>
     <div id="engineer-panel" class="engineer-panel" hidden>
       <div><b>Visão do engenheiro</b><span>Atualize o avanço executado e envie para o planejamento.</span></div>
       <button id="send-update" class="button primary">Enviar atualização</button>
     </div>
     <div id="toast" role="status"></div>
-    <script src="app.js"></script>
+    <script src="app.js?v=project-registration-20261003"></script>
   </body>
 </html>

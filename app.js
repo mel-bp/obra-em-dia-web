@@ -80,6 +80,61 @@ $('#password-recovery-form').addEventListener('submit',async e=>{
   setLoginView('login');setLoginMessage('Senha definida com sucesso. Entre com sua nova senha.',false);
 });
 $('#logout-button').onclick=async()=>{await db.auth.signOut();notify('Você saiu do app.')};
+
+function updateEngineerRowButtons(){
+  const rows=[...$('#engineer-registration-rows').querySelectorAll('.engineer-registration-row')];
+  rows.forEach((row,index)=>{const button=row.querySelector('.remove-engineer-row');button.hidden=rows.length===1;button.setAttribute('aria-label','Remover engenheiro '+(index+1))});
+}
+function addEngineerRegistrationRow(){
+  const row=document.createElement('div');
+  row.className='engineer-registration-row';
+  row.innerHTML='<label>Nome do engenheiro<input class="registration-engineer-name" type="text" maxlength="120" autocomplete="name" required></label><label>E-mail do engenheiro<input class="registration-engineer-email" type="email" maxlength="254" autocomplete="email" required></label><button class="button secondary remove-engineer-row" type="button" aria-label="Remover engenheiro">−</button>';
+  row.querySelector('.remove-engineer-row').onclick=()=>{row.remove();updateEngineerRowButtons()};
+  $('#engineer-registration-rows').append(row);
+  updateEngineerRowButtons();
+}
+$('#open-project-registration').onclick=()=>{$('#project-registration-message').textContent='';$('#project-registration-dialog').showModal()};
+$('#close-project-registration').onclick=()=>$('#project-registration-dialog').close();
+$('#cancel-project-registration').onclick=()=>$('#project-registration-dialog').close();
+$('#add-engineer-row').onclick=addEngineerRegistrationRow;
+$('#project-registration-dialog').addEventListener('close',()=>{
+  $('#project-registration-form').reset();
+  $('#engineer-registration-rows').querySelectorAll('.engineer-registration-row').forEach((row,index)=>{if(index>0)row.remove()});
+  updateEngineerRowButtons();
+  $('#project-registration-message').textContent='';
+});
+$('#project-registration-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const form=$('#project-registration-form'),button=$('#register-project-button'),message=$('#project-registration-message');
+  const name=$('#registration-project-name').value.trim();
+  const engineers=[...$('#engineer-registration-rows').querySelectorAll('.engineer-registration-row')].map(row=>({name:row.querySelector('.registration-engineer-name').value.trim(),email:row.querySelector('.registration-engineer-email').value.trim().toLowerCase()}));
+  const emails=new Set();
+  for(const engineer of engineers){
+    if(emails.has(engineer.email)){message.textContent='O mesmo e-mail foi informado mais de uma vez.';return}
+    emails.add(engineer.email);
+  }
+  button.disabled=true;button.textContent='Cadastrando…';message.textContent='Cadastrando o projeto e vinculando os engenheiros…';
+  try{
+    const {data,error}=await db.functions.invoke('register-project',{body:{name,engineers}});
+    if(error||data?.error){message.textContent=data?.error||error.message||'Não foi possível cadastrar o projeto.';return}
+    const results=data.results||[],failed=results.filter(item=>item.status==='error'),invited=results.filter(item=>item.status==='invited').length,associated=results.filter(item=>item.status==='associated').length;
+    await loadProjects(data.projectId);
+    const summary=(data.created?'Projeto cadastrado.':'Projeto já existente; engenheiros vinculados a ele.')+' '+invited+' convite(s) enviado(s), '+associated+' conta(s) existente(s) vinculada(s).';
+    if(failed.length){
+      message.textContent=summary+' Pendências: '+failed.map(item=>item.name+' ('+item.email+'): '+item.message).join(' ');
+      notify('Projeto salvo. Confira as pendências de convite na janela.');
+      return;
+    }
+    $('#project-registration-dialog').close();
+    notify(summary);
+  }catch(error){
+    console.error('Falha ao cadastrar projeto:',error);
+    message.textContent='Não foi possível concluir o cadastro. Tente novamente.';
+  }finally{
+    button.disabled=false;button.textContent='CADASTRO REALIZADO';
+  }
+});
+
 async function loadProjects(preferredId){
   const {data,error}=await db.from('projects').select('id,name,source_file,created_at').order('name');
   if(error){notify('Não consegui carregar as obras. '+error.message);return}
@@ -95,17 +150,15 @@ async function loadProjects(preferredId){
   if(profile?.role==='admin')await loadAssignments()
 }
 $('#project-select').onchange=()=>loadProject($('#project-select').value);
-async function loadProject(projectId){selectedProject=projectId;const project=projects.find(p=>p.id===projectId);if(!project){tasks=[];render();return}$('#project-name').innerHTML=`<span class="dot"></span> ${esc(project.name)} <small>• ${project.source_file?'cronograma carregado':'obra'}</small>`;const {data:activities,error}=await db.from('activities').select('*').eq('project_id',projectId).order('sort_order');if(error){notify('Falha ao carregar atividades: '+error.message);return}const {data:latest,error:latestError}=await db.from('submissions').select('id,submitted_at,submitted_by').eq('project_id',projectId).order('submitted_at',{ascending:false}).limit(1).maybeSingle();if(latestError){notify('Falha ao carregar atualizações: '+latestError.message);return}let values=new Map();if(latest){const {data:items,error:itemError}=await db.from('submission_items').select('activity_id,actual_pct').eq('submission_id',latest.id);if(itemError){notify('Falha ao carregar percentuais: '+itemError.message);return}values=new Map((items||[]).map(x=>[x.activity_id,Number(x.actual_pct)]))}tasks=(activities||[]).map((a,index)=>({id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),actual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),originalActual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column}));$('#last-update').textContent=latest?new Date(latest.submitted_at).toLocaleString('pt-BR'):'Nenhum envio ainda';$('#table-help').textContent=latest?'Percentuais do envio mais recente.':'Cronograma original; aguardando a primeira atualização.';render();if(profile?.role==='admin')await loadAssignments()}
+async function loadProject(projectId){selectedProject=projectId;const project=projects.find(p=>p.id===projectId);if(!project){tasks=[];$('#export-button').disabled=true;$('#send-update').disabled=true;render();return}$('#project-name').innerHTML=`<span class="dot"></span> ${esc(project.name)} <small>• ${project.source_file?'cronograma carregado':'obra'}</small>`;$('#export-button').disabled=!project.source_file;$('#send-update').disabled=true;const {data:activities,error}=await db.from('activities').select('*').eq('project_id',projectId).eq('is_current',true).order('sort_order');if(error){notify('Falha ao carregar atividades: '+error.message);return}const {data:progress,error:progressError}=await db.rpc('latest_schedule_progress',{p_project_id:projectId});if(progressError){notify('Falha ao carregar atualizações: '+progressError.message);return}const latest=progress?.length?{id:progress[0].submission_id,submitted_at:progress[0].submitted_at,submitted_by:progress[0].submitted_by}:null;const values=new Map((progress||[]).map(item=>[item.activity_id,Number(item.actual_pct)]));tasks=(activities||[]).map((a,index)=>({id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),actual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),originalActual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column}));$('#send-update').disabled=!tasks.some(t=>!t.summary);$('#last-update').textContent=latest?new Date(latest.submitted_at).toLocaleString('pt-BR'):'Nenhum envio ainda';$('#table-help').textContent=latest?'Percentuais do envio mais recente.':'Cronograma original; aguardando a primeira atualização.';render();if(profile?.role==='admin')await loadAssignments()}
 function render(){const q=($('#search')?.value||'').toLowerCase();if(!tasks.length){body.innerHTML='<tr><td colspan="5" class="empty-state">Selecione uma obra para ver as atividades.</td></tr>';['attention-count','late-count','changed-count','all-count'].forEach(id=>$('#'+id).textContent='0');$('#planned-total').textContent='—';$('#actual-total').textContent='—';$('#actual-detail').textContent='aguardando cronograma';$('#actual-bar').style.width='0%';return}const visible=tasks.filter(t=>t.name.toLowerCase().includes(q)&&(activeFilter==='all'||activeFilter==='changed'&&changed(t)||activeFilter==='late'&&!t.summary&&t.actual<t.plan));body.innerHTML=visible.map(t=>{const variation=t.actual-t.plan,late=!t.summary&&variation<0;return `<tr class="${t.summary?'summary-row':''} ${changed(t)?'changed':''}"><td class="task-id" data-label="ID">${esc(t.activityId)}</td><td class="task-cell" data-label="Atividade"><span class="wbs">${esc(t.wbs)}</span>${esc(t.name)}${t.summary?' <span class="summary-label">RESUMO</span>':''}</td><td class="percent" data-label="Planejado">${t.plan}%</td><td data-label="Avanço informado">${t.summary?'<span class="not-editable">Não editável</span>':`<input class="actual-input" aria-label="Avanço de ${esc(t.name)}" type="number" inputmode="decimal" min="0" max="100" step="1" value="${t.actual}" data-id="${esc(t.id)}"/> %`}</td><td class="delta ${late?'negative':variation>0?'positive':''}" data-label="Variação">${variation>0?'+':''}${variation} p.p.</td></tr>`}).join('')||'<tr><td colspan="5" class="empty-state">Nenhuma atividade corresponde ao filtro selecionado.</td></tr>';const leaves=tasks.filter(t=>!t.summary),late=leaves.filter(t=>t.actual<t.plan).length,changes=leaves.filter(changed).length,actual=Math.round(leaves.reduce((s,t)=>s+t.actual,0)/(leaves.length||1)),plan=Math.round(leaves.reduce((s,t)=>s+t.plan,0)/(leaves.length||1));$('#attention-count').textContent=late;$('#late-count').textContent=late;$('#changed-count').textContent=changes;$('#all-count').textContent=tasks.length;$('#actual-total').textContent=actual+'%';$('#planned-total').textContent=plan+'%';$('#actual-bar').style.width=actual+'%';$('#actual-detail').textContent=actual===plan?'em linha com o planejado':`${Math.abs(plan-actual)} pontos ${actual<plan?'abaixo':'acima'} do planejado`}
 body.addEventListener('change',e=>{if(!e.target.matches('.actual-input'))return;const t=tasks.find(x=>x.id===e.target.dataset.id);if(!t)return;t.actual=Math.max(0,Math.min(100,Number(e.target.value)||0));render()});
 document.querySelectorAll('.filter').forEach(button=>button.onclick=()=>{activeFilter=button.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===button));render()});$('#search').oninput=render;
 $('#send-update').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra antes de enviar.');const items=tasks.filter(t=>!t.summary).map(t=>({activity_id:t.id,actual_pct:t.actual}));const {data,error}=await db.rpc('submit_progress',{target_project:selectedProject,items});if(error)return notify('Não foi possível enviar. '+error.message);tasks.forEach(t=>t.originalActual=t.actual);$('#last-update').textContent=new Date().toLocaleString('pt-BR');$('#table-help').textContent='Atualização enviada e registrada no histórico.';render();notify('Atualização enviada ao planejamento.');};
 $('#import-button').onclick=async()=>{
-  const button=$('#import-button'),file=$('#schedule-file').files[0],name=$('#new-project-name').value.trim()||file?.name.replace(/\.[^.]+$/,'');
-  const emails=[...new Set($('#engineer-emails').value.split(/[,;\n]+/).map(x=>x.trim().toLowerCase()).filter(Boolean))];
+  const button=$('#import-button'),file=$('#schedule-file').files[0],project=projects.find(item=>item.id===selectedProject);
+  if(!project)return notify('Selecione o projeto que receberá o cronograma.');
   if(!file)return notify('Selecione um arquivo Excel ou CSV.');
-  if(!name)return notify('Informe o nome da obra.');
-  if(emails.some(email=>!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))return notify('Confira os e-mails informados. Separe vários com vírgula ou linha.');
   let phase='Lendo o arquivo';
   button.disabled=true;button.textContent='Importando…';
   try{
@@ -118,21 +171,23 @@ $('#import-button').onclick=async()=>{
     const parsedActivities=[];
     parsed.rows.slice(parsed.headerIndex+1).forEach((row,i)=>{const activityName=String(row[cols.name]||'').trim();if(!activityName)return;const actual=percent(row[cols.actual]),plan=cols.plan<0?actual:percent(row[cols.plan]);parsedActivities.push({sort_order:parsedActivities.length,activity_id:String(cols.id<0?parsedActivities.length+1:row[cols.id]||parsedActivities.length+1),wbs:cols.wbs<0?'':String(row[cols.wbs]||''),name:activityName,is_summary:cols.summary>=0&&['sim','s','yes','true','1'].includes(key(row[cols.summary])),planned_pct:plan,initial_actual_pct:actual,source_sheet:parsed.sheetName,source_row:parsed.headerIndex+1+i,source_actual_column:cols.actual})});
     if(!parsedActivities.length)throw Error('Não encontrei atividades abaixo do cabeçalho.');
-    phase='Criando o cadastro da obra';const {data:project,error:projectError}=await db.from('projects').insert({name,source_file:file.name,created_by:user.id}).select('id').single();if(projectError)throw projectError;
-    phase='Enviando o arquivo original ao armazenamento';const path=`${project.id}/${file.name}`;const {error:uploadError}=await db.storage.from('schedule-files').upload(path,file,{contentType:file.type||'application/octet-stream'});if(uploadError)throw uploadError;
-    phase='Salvando atividades do cronograma';for(let i=0;i<parsedActivities.length;i+=250){const batch=parsedActivities.slice(i,i+250).map(a=>({...a,project_id:project.id}));const {error}=await db.from('activities').insert(batch);if(error)throw error}
-    let invited=0,associated=0,failed=[];
-    for(const email of emails){const {data,error}=await db.functions.invoke('invite-engineer',{body:{email,projectId:project.id}});if(error||data?.error)failed.push(email+': '+(data?.error||error.message));else if(data.invited)invited++;else associated++}
-    $('#new-project-name').value='';$('#schedule-file').value='';$('#engineer-emails').value='';await loadProjects(project.id);
-    const result=`${parsedActivities.length} atividades importadas para ${name}.${emails.length? ` ${invited} convite(s) enviado(s), ${associated} engenheiro(s) já cadastrado(s).`:''}`;
-    notify(failed.length?`${result} Convites pendentes: ${failed.join(' | ')}`:result);
-  }catch(error){console.error(error);notify(`${phase}: ${error.message||'falha inesperada.'}`)}
-  finally{button.disabled=false;button.textContent='Importar obra e convidar'}
+    phase='Enviando o arquivo original ao armazenamento';
+    const safeName=file.name.replace(/[\\/:*?"<>|]/g,'_'),storedFileName=Date.now()+'-'+safeName,path=project.id+'/'+storedFileName;
+    const {error:uploadError}=await db.storage.from('schedule-files').upload(path,file,{contentType:file.type||'application/octet-stream',upsert:true});
+    if(uploadError)throw uploadError;
+    phase='Substituindo o cronograma do projeto';
+    const {error:replaceError}=await db.rpc('replace_project_schedule',{p_project_id:project.id,p_source_file:storedFileName,p_activities:parsedActivities});
+    if(replaceError){await db.storage.from('schedule-files').remove([path]);throw replaceError}
+    $('#schedule-file').value='';
+    await loadProjects(project.id);
+    notify(parsedActivities.length+' atividades importadas para '+project.name+'. Cronograma substituído; os envios anteriores foram preservados no histórico.');
+  }catch(error){console.error(error);notify(phase+': '+(error.message||'falha inesperada.'))}
+  finally{button.disabled=false;button.textContent='Importar/atualizar cronograma'}
 };
 async function loadEngineers(){const {data,error}=await db.from('profiles').select('id,email,display_name').eq('role','engineer').order('email');if(error){$('#engineer-select').innerHTML='<option value="">Erro ao carregar usuários</option>';notify(error.message);return}$('#engineer-select').innerHTML='<option value="">Selecione</option>'+(data||[]).map(p=>`<option value="${p.id}">${esc(p.display_name||p.email)} (${esc(p.email)})</option>`).join('')}
 $('#assign-button').onclick=async()=>{const engineerId=$('#engineer-select').value;if(!selectedProject||!engineerId)return notify('Selecione uma obra e um engenheiro.');const {error}=await db.from('project_members').insert({project_id:selectedProject,user_id:engineerId,assigned_by:user.id});if(error)return notify(error.code==='23505'?'Este engenheiro já está atribuído a esta obra.':error.message);await loadAssignments();notify('Engenheiro atribuído à obra.')};
 async function loadAssignments(){if(!selectedProject||profile?.role!=='admin')return;const {data,error}=await db.from('project_members').select('user_id').eq('project_id',selectedProject);if(error)return;const ids=(data||[]).map(x=>x.user_id);if(!ids.length){$('#assignment-status').textContent='Nenhum engenheiro atribuído a esta obra.';return}const {data:people}=await db.from('profiles').select('id,email,display_name').in('id',ids);$('#assignment-status').textContent='Acesso: '+(people||[]).map(x=>x.display_name||x.email).join(', ')}
 async function loadSubmissions(){const {data:s,error}=await db.from('submissions').select('id,project_id,submitted_by,submitted_at').order('submitted_at',{ascending:false}).limit(20);if(error){$('#submission-list').textContent=error.message;return}if(!s?.length){$('#submission-list').textContent='Nenhuma atualização recebida ainda.';return}const projectIds=[...new Set(s.map(x=>x.project_id))],userIds=[...new Set(s.map(x=>x.submitted_by))];const [{data:p},{data:u}]=await Promise.all([db.from('projects').select('id,name').in('id',projectIds),db.from('profiles').select('id,email,display_name').in('id',userIds)]);const pm=new Map((p||[]).map(x=>[x.id,x.name])),um=new Map((u||[]).map(x=>[x.id,x.display_name||x.email]));$('#submission-list').innerHTML=s.map(x=>`<div class="submission-row"><span><b>${esc(pm.get(x.project_id)||'Obra')}</b><br><small>${esc(um.get(x.submitted_by)||'Engenheiro')}</small></span><small>${new Date(x.submitted_at).toLocaleString('pt-BR')}</small></div>`).join('')}
-$('#export-button').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra para exportar.');const project=projects.find(p=>p.id===selectedProject);if(!project)return;const path=`${project.id}/${project.source_file}`;const {data:file,error}=await db.storage.from('schedule-files').download(path);if(error)return notify('Falha ao baixar o original. '+error.message);try{const wb=XLSX.read(await file.arrayBuffer(),{type:'array',raw:false,cellDates:true});for(const t of tasks){if(t.summary||t.sourceActualColumn===null||t.sourceActualColumn===undefined)continue;const ws=wb.Sheets[t.sourceSheet];if(!ws)continue;const addr=XLSX.utils.encode_cell({r:t.sourceRow,c:t.sourceActualColumn});const cell=ws[addr]||{};const fraction=(String(cell.z||'').includes('%')||(typeof cell.v==='number'&&cell.v>=0&&cell.v<=1));ws[addr]={...cell,t:'n',v:fraction?t.actual/100:t.actual}}XLSX.writeFile(wb,`${project.name.replace(/[\\/:*?"<>|]/g,'_')}_atualizado.xlsx`);notify('Excel atualizado baixado.')}catch(e){notify('Falha ao gerar o Excel. '+e.message)}};
+$('#export-button').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra para exportar.');const project=projects.find(p=>p.id===selectedProject);if(!project)return;if(!project.source_file)return notify('Este projeto ainda não tem cronograma para exportar.');const path=`${project.id}/${project.source_file}`;const {data:file,error}=await db.storage.from('schedule-files').download(path);if(error)return notify('Falha ao baixar o original. '+error.message);try{const wb=XLSX.read(await file.arrayBuffer(),{type:'array',raw:false,cellDates:true});for(const t of tasks){if(t.summary||t.sourceActualColumn===null||t.sourceActualColumn===undefined)continue;const ws=wb.Sheets[t.sourceSheet];if(!ws)continue;const addr=XLSX.utils.encode_cell({r:t.sourceRow,c:t.sourceActualColumn});const cell=ws[addr]||{};const fraction=(String(cell.z||'').includes('%')||(typeof cell.v==='number'&&cell.v>=0&&cell.v<=1));ws[addr]={...cell,t:'n',v:fraction?t.actual/100:t.actual}}XLSX.writeFile(wb,`${project.name.replace(/[\\/:*?"<>|]/g,'_')}_atualizado.xlsx`);notify('Excel atualizado baixado.')}catch(e){notify('Falha ao gerar o Excel. '+e.message)}};
 window.addEventListener('focus',()=>{if(profile?.role==='admin')loadSubmissions()});setInterval(()=>{if(profile?.role==='admin')loadSubmissions()},60000);
 render();start();
