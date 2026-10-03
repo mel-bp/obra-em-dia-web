@@ -210,7 +210,7 @@ tasks=(activities||[]).map(a=>{
   const recovered=recoveredDimensions.get(a.id)||{};
   return {id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),actual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),originalActual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column,macro:a.macro??recovered.macro??'',sector:a.sector??recovered.sector??'',local:a.activity_local??recovered.local??'',sourceMacroColumn:a.source_macro_column??recovered.sourceMacroColumn,sourceSectorColumn:a.source_sector_column??recovered.sourceSectorColumn,sourceLocalColumn:a.source_local_column??recovered.sourceLocalColumn}
 });
-$('#send-update').disabled=!tasks.some(t=>!t.summary);let lastUpdateName='Nenhum envio ainda';if(latest){const {data:authorRows,error:authorError}=await db.rpc('latest_project_update_author',{p_project_id:projectId});if(!authorError)lastUpdateName=authorRows?.[0]?.engineer_name||'Nome não informado';else if(latest.submitted_by===profile?.id)lastUpdateName=profile.display_name||profile.email||'Nome não informado';else console.warn('Não foi possível carregar o nome do responsável pela última atualização.',authorError.message)}$('#last-update').textContent=lastUpdateName;$('#table-help').textContent=latest?'Percentuais do envio mais recente.':'Cronograma original; aguardando a primeira atualização.';render()}
+$('#send-update').disabled=!tasks.some(t=>!t.summary);let lastUpdateName='';if(latest){const {data:authorRows,error:authorError}=await db.rpc('latest_project_update_author',{p_project_id:projectId});if(!authorError)lastUpdateName=authorRows?.[0]?.engineer_name||'Nome não informado';else if(latest.submitted_by===profile?.id)lastUpdateName=profile.display_name||profile.email||'Nome não informado';else console.warn('Não foi possível carregar o nome do responsável pela última atualização.',authorError.message)}$('#last-update').textContent=latest?new Date(latest.submitted_at).toLocaleDateString('pt-BR'):'Nenhum envio ainda';$('#last-update-engineer').textContent=lastUpdateName;$('#last-update-engineer').hidden=!latest;$('#table-help').textContent=latest?'Percentuais do envio mais recente.':'Cronograma original; aguardando a primeira atualização.';render()}
 function render(){
   const q=($('#search')?.value||'').toLowerCase();
   const dimensions=[
@@ -223,13 +223,13 @@ function render(){
   if(head)head.innerHTML='<th>ID</th>'+dimensions.map(column=>'<th>'+column.label+'</th>').join('')+'<th>% ANTERIOR</th><th>% NOVO DIGITÁVEL</th>';
   if(!tasks.length){
     body.innerHTML='<tr><td colspan="'+columnCount+'" class="empty-state">Selecione uma obra para ver as atividades.</td></tr>';
-    ['late-count','changed-count','all-count'].forEach(id=>$('#'+id).textContent='0');
-    $('#planned-total').textContent='—';$('#global-bar').style.width='0%';$('#planned-finish').textContent='—';$('#last-update').textContent='Nenhum envio ainda';
+    ['changed-count','all-count'].forEach(id=>$('#'+id).textContent='0');
+    $('#planned-total').textContent='—';$('#global-bar').style.width='0%';$('#planned-finish').textContent='—';$('#last-update').textContent='Nenhum envio ainda';$('#last-update-engineer').textContent='';$('#last-update-engineer').hidden=true;
     return;
   }
-  const visible=tasks.filter(task=>task.name.toLowerCase().includes(q)&&(activeFilter==='all'||activeFilter==='changed'&&changed(task)||activeFilter==='late'&&!task.summary&&task.actual<task.plan));
+  const visible=tasks.filter(task=>task.name.toLowerCase().includes(q)&&(activeFilter==='all'||activeFilter==='changed'&&changed(task)));
   body.innerHTML=visible.map(task=>{
-    const variation=task.actual-task.plan,late=!task.summary&&variation<0;
+    
     const name=esc(task.name)+(task.summary?' <span class="summary-label">RESUMO</span>':'');
     const cells=['<td class="activity-cell" data-label="ID"><span class="task-id">'+esc(task.activityId)+'</span><span class="activity-name-inline">'+name+'</span></td>'];
     if(dimensions.some(column=>column.key==='macro'))cells.push('<td data-label="MACRO">'+esc(task.macro)+'</td>');
@@ -237,16 +237,16 @@ function render(){
     if(dimensions.some(column=>column.key==='local'))cells.push('<td data-label="LOCAL">'+esc(task.local)+'</td>');
     cells.push('<td class="percent" data-label="% ANTERIOR">'+task.plan+'%</td>');
     cells.push('<td data-label="% NOVO DIGITÁVEL">'+(task.summary?'<span class="not-editable">Não editável</span>':'<input class="actual-input" aria-label="Novo avanço de '+esc(task.name)+'" type="number" inputmode="decimal" min="0" max="100" step="1" value="'+task.actual+'" data-id="'+esc(task.id)+'"/> %')+'</td>');
-    return '<tr class="'+(task.summary?'summary-row':'')+' '+(changed(task)?'changed':'')+(late?' late-row':'')+'">'+cells.join('')+'</tr>';
+    return '<tr class="'+(task.summary?'summary-row':'')+' '+(changed(task)?'changed':'')+'">'+cells.join('')+'</tr>';
   }).join('')||'<tr><td colspan="'+columnCount+'" class="empty-state">Nenhuma atividade corresponde ao filtro selecionado.</td></tr>';
-  const leaves=tasks.filter(task=>!task.summary),late=leaves.filter(task=>task.actual<task.plan).length,changes=leaves.filter(changed).length,globalActivity=tasks.find(task=>Number(String(task.activityId).trim())===1),globalPercent=globalActivity?Math.round(Number(globalActivity.plan)):null;
-  $('#late-count').textContent=late;$('#changed-count').textContent=changes;$('#all-count').textContent=tasks.length;
+  const changes=tasks.filter(task=>!task.summary&&changed(task)).length,globalActivity=tasks.find(task=>Number(String(task.activityId).trim())===1),globalPercent=globalActivity?Math.round(Number(globalActivity.plan)):null;
+  $('#changed-count').textContent=changes;$('#all-count').textContent=tasks.length;
   $('#planned-total').textContent=globalPercent===null?'—':globalPercent+'%';$('#global-bar').style.width=globalPercent===null?'0%':Math.max(0,Math.min(100,globalPercent))+'%';
   $('#planned-finish').textContent=plannedFinishDate||'—';
 }
 body.addEventListener('change',e=>{if(!e.target.matches('.actual-input'))return;const t=tasks.find(x=>x.id===e.target.dataset.id);if(!t)return;t.actual=Math.max(0,Math.min(100,Number(e.target.value)||0));render()});
 document.querySelectorAll('.filter').forEach(button=>button.onclick=()=>{activeFilter=button.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===button));render()});$('#search').oninput=render;
-$('#send-update').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra antes de enviar.');const items=tasks.filter(t=>!t.summary).map(t=>({activity_id:t.id,actual_pct:t.actual}));const {data,error}=await db.rpc('submit_progress',{target_project:selectedProject,items});if(error)return notify('Não foi possível enviar. '+error.message);tasks.forEach(t=>t.originalActual=t.actual);$('#last-update').textContent=profile?.display_name||profile?.email||'Nome não informado';$('#table-help').textContent='Atualização enviada e registrada no histórico.';render();notify('Atualização enviada ao planejamento.');};
+$('#send-update').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra antes de enviar.');const items=tasks.filter(t=>!t.summary).map(t=>({activity_id:t.id,actual_pct:t.actual}));const {data,error}=await db.rpc('submit_progress',{target_project:selectedProject,items});if(error)return notify('Não foi possível enviar. '+error.message);tasks.forEach(t=>t.originalActual=t.actual);$('#last-update').textContent=new Date().toLocaleDateString('pt-BR');$('#last-update-engineer').textContent=profile?.display_name||profile?.email||'Nome não informado';$('#last-update-engineer').hidden=false;$('#table-help').textContent='Atualização enviada e registrada no histórico.';render();notify('Atualização enviada ao planejamento.');};
 $('#import-button').onclick=async()=>{
   const button=$('#import-button'),file=$('#schedule-file').files[0],project=projects.find(item=>item.id===selectedProject);
   if(!project)return notify('Selecione o projeto que receberá o cronograma.');

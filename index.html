@@ -10,7 +10,7 @@
     <title>Obra em Dia — Controle de Cronograma</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css?v=project-summary-20261003" />
+    <link rel="stylesheet" href="styles.css?v=update-card-cleanup-20261003" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase/config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -68,20 +68,18 @@
         </div>
       </section>
       <section id="admin-submissions" class="admin-submissions" hidden><h2>Atualizações recebidas</h2><div id="submission-list"></div></section>      <section class="metrics" aria-label="Resumo do cronograma">
-        <article><span>% Global</span><strong id="planned-total">—</strong><div class="track"><i id="global-bar" style="width:0%"></i></div><small>percentual da atividade ID 1</small></article>
-        <article><span>Término previsto</span><strong id="planned-finish">—</strong><small>data da coluna TÉRMINO no ID 1</small></article>
-        <article class="metric-author"><span>Última atualização</span><strong id="last-update">Nenhum envio ainda</strong></article>
+        <article><span>% Global</span><strong id="planned-total">—</strong><div class="track"><i id="global-bar" style="width:0%"></i></div></article>
+        <article><span>Término previsto</span><strong id="planned-finish">—</strong></article>
+        <article class="metric-author"><span>Última atualização</span><strong id="last-update">Nenhum envio ainda</strong><small id="last-update-engineer" hidden></small></article>
       </section>
 
       <section class="workspace">
         <div class="section-heading">
           <div><h2>Atividades do cronograma</h2><p id="table-help">Carregue um arquivo Excel ou CSV para visualizar as atividades.</p></div>
-          <div class="legend"><span><b class="legend-change"></b> Alterado</span><span><b class="legend-late"></b> Atrasado</span></div>
         </div>
         <div class="filters">
           <button class="filter active" data-filter="all">Todas <span id="all-count">8</span></button>
           <button class="filter" data-filter="changed">Alteradas <span id="changed-count">0</span></button>
-          <button class="filter" data-filter="late">Em atraso <span id="late-count">3</span></button>
           <input id="search" placeholder="Buscar atividade" aria-label="Buscar atividade" />
         </div>
         <div class="table-wrap">
@@ -133,6 +131,6 @@
       <button id="send-update" class="button primary">Enviar atualização</button>
     </div>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=project-summary-20261003"></script>
+    <script src="app.js?v=update-card-cleanup-20261003"></script>
   </body>
 </html>
