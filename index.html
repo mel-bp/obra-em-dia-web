@@ -10,7 +10,7 @@
     <title>Obra em Dia — Controle de Cronograma</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css?v=update-card-cleanup-20261003" />
+    <link rel="stylesheet" href="styles.css?v=schedule-dimension-filters-20261005" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase/config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -82,6 +82,17 @@
           <button class="filter" data-filter="changed">Alteradas <span id="changed-count">0</span></button>
           <input id="search" placeholder="Buscar atividade" aria-label="Buscar atividade" />
         </div>
+        <div class="schedule-dimension-filters" aria-label="Filtrar atividades por macro, setor e local">
+          <label class="dimension-filter">Macro
+            <select id="filter-macro" aria-label="Filtrar por macro"><option value="">Todas as macros</option></select>
+          </label>
+          <label class="dimension-filter">Setor
+            <select id="filter-sector" aria-label="Filtrar por setor"><option value="">Todos os setores</option></select>
+          </label>
+          <label class="dimension-filter">Local
+            <select id="filter-local" aria-label="Filtrar por local"><option value="">Todos os locais</option></select>
+          </label>
+        </div>
         <div class="table-wrap">
           <table>
             <thead><tr id="schedule-head"><th>ID</th><th>% ANTERIOR</th><th>% NOVO DIGITÁVEL</th></tr></thead>
@@ -131,7 +142,7 @@
       <button id="send-update" class="button primary">Enviar atualização</button>
     </div>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=update-card-cleanup-20261003"></script>
+    <script src="app.js?v=schedule-dimension-filters-20261005"></script>
     <script>
       if ('serviceWorker' in navigator) {
         let refreshingAfterWorkerUpdate = false;

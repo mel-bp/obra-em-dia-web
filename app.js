@@ -205,14 +205,36 @@ async function recoverScheduleMetadata(projectId,sourceFile,activities){
     return metadata;
   }
 }
-async function loadProject(projectId){selectedProject=projectId;const project=projects.find(p=>p.id===projectId);if(!project){tasks=[];$('#export-button').disabled=true;$('#send-update').disabled=true;$('#open-assign-engineer').disabled=true;render();return}$('#open-assign-engineer').disabled=false;$('#project-name').innerHTML=`<span class="dot"></span> ${esc(project.name)} <small>• ${project.source_file?'cronograma carregado':'obra'}</small>`;$('#export-button').disabled=!project.source_file;$('#send-update').disabled=true;const {data:activities,error}=await db.from('activities').select('*').eq('project_id',projectId).eq('is_current',true).order('sort_order');if(error){notify('Falha ao carregar atividades: '+error.message);return}const {data:progress,error:progressError}=await db.rpc('latest_schedule_progress',{p_project_id:projectId});if(progressError){notify('Falha ao carregar atualizações: '+progressError.message);return}const latest=progress?.length?{id:progress[0].submission_id,submitted_at:progress[0].submitted_at,submitted_by:progress[0].submitted_by}:null;const values=new Map((progress||[]).map(item=>[item.activity_id,Number(item.actual_pct)]));const scheduleMetadata=await recoverScheduleMetadata(projectId,project.source_file,activities||[]);const recoveredDimensions=scheduleMetadata.dimensions;plannedFinishDate=scheduleMetadata.plannedFinish;
+async function loadProject(projectId){selectedProject=projectId;const project=projects.find(p=>p.id===projectId);if(!project){tasks=[];populateDimensionFilters();$('#export-button').disabled=true;$('#send-update').disabled=true;$('#open-assign-engineer').disabled=true;render();return}$('#open-assign-engineer').disabled=false;$('#project-name').innerHTML=`<span class="dot"></span> ${esc(project.name)} <small>• ${project.source_file?'cronograma carregado':'obra'}</small>`;$('#export-button').disabled=!project.source_file;$('#send-update').disabled=true;const {data:activities,error}=await db.from('activities').select('*').eq('project_id',projectId).eq('is_current',true).order('sort_order');if(error){notify('Falha ao carregar atividades: '+error.message);return}const {data:progress,error:progressError}=await db.rpc('latest_schedule_progress',{p_project_id:projectId});if(progressError){notify('Falha ao carregar atualizações: '+progressError.message);return}const latest=progress?.length?{id:progress[0].submission_id,submitted_at:progress[0].submitted_at,submitted_by:progress[0].submitted_by}:null;const values=new Map((progress||[]).map(item=>[item.activity_id,Number(item.actual_pct)]));const scheduleMetadata=await recoverScheduleMetadata(projectId,project.source_file,activities||[]);const recoveredDimensions=scheduleMetadata.dimensions;plannedFinishDate=scheduleMetadata.plannedFinish;
 tasks=(activities||[]).map(a=>{
   const recovered=recoveredDimensions.get(a.id)||{};
   return {id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),actual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),originalActual:values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct),sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column,macro:a.macro??recovered.macro??'',sector:a.sector??recovered.sector??'',local:a.activity_local??recovered.local??'',sourceMacroColumn:a.source_macro_column??recovered.sourceMacroColumn,sourceSectorColumn:a.source_sector_column??recovered.sourceSectorColumn,sourceLocalColumn:a.source_local_column??recovered.sourceLocalColumn}
 });
+populateDimensionFilters();
 $('#send-update').disabled=!tasks.some(t=>!t.summary);let lastUpdateName='';if(latest){const {data:authorRows,error:authorError}=await db.rpc('latest_project_update_author',{p_project_id:projectId});if(!authorError)lastUpdateName=authorRows?.[0]?.engineer_name||'Nome não informado';else if(latest.submitted_by===profile?.id)lastUpdateName=profile.display_name||profile.email||'Nome não informado';else console.warn('Não foi possível carregar o nome do responsável pela última atualização.',authorError.message)}$('#last-update').textContent=latest?new Date(latest.submitted_at).toLocaleDateString('pt-BR'):'Nenhum envio ainda';$('#last-update-engineer').textContent=lastUpdateName;$('#last-update-engineer').hidden=!latest;$('#table-help').textContent=latest?'Percentuais do envio mais recente.':'Cronograma original; aguardando a primeira atualização.';render()}
+function normalizeDimensionValue(value){return String(value??'').trim().replace(/\s+/g,' ')}
+const dimensionFilterDefinitions=[
+  {key:'macro',id:'filter-macro',all:'Todas as macros'},
+  {key:'sector',id:'filter-sector',all:'Todos os setores'},
+  {key:'local',id:'filter-local',all:'Todos os locais'}
+];
+function populateDimensionFilters(){
+  dimensionFilterDefinitions.forEach(filter=>{
+    const select=$('#'+filter.id);
+    if(!select)return;
+    const unique=new Map();
+    tasks.map(task=>normalizeDimensionValue(task[filter.key])).filter(Boolean).forEach(value=>{
+      const key=value.toLocaleLowerCase('pt-BR');
+      if(!unique.has(key))unique.set(key,value);
+    });
+    const options=[...unique.values()].sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true,sensitivity:'base'}));
+    select.innerHTML='<option value="">'+filter.all+'</option>'+options.map(value=>'<option value="'+esc(value)+'">'+esc(value)+'</option>').join('');
+    select.disabled=options.length===0;
+  });
+}
 function render(){
   const q=($('#search')?.value||'').toLowerCase();
+  const selectedDimensions=Object.fromEntries(dimensionFilterDefinitions.map(filter=>[filter.key,normalizeDimensionValue($('#'+filter.id)?.value).toLocaleLowerCase('pt-BR')]));
   const dimensions=[
     {key:'macro',label:'MACRO',source:'sourceMacroColumn'},
     {key:'sector',label:'SETOR',source:'sourceSectorColumn'},
@@ -227,7 +249,7 @@ function render(){
     $('#planned-total').textContent='—';$('#global-bar').style.width='0%';$('#planned-finish').textContent='—';$('#last-update').textContent='Nenhum envio ainda';$('#last-update-engineer').textContent='';$('#last-update-engineer').hidden=true;
     return;
   }
-  const visible=tasks.filter(task=>task.name.toLowerCase().includes(q)&&(activeFilter==='all'||activeFilter==='changed'&&changed(task)));
+  const visible=tasks.filter(task=>task.name.toLowerCase().includes(q)&&dimensionFilterDefinitions.every(filter=>!selectedDimensions[filter.key]||normalizeDimensionValue(task[filter.key]).toLocaleLowerCase('pt-BR')===selectedDimensions[filter.key])&&(activeFilter==='all'||activeFilter==='changed'&&changed(task)));
   body.innerHTML=visible.map(task=>{
     
     const name=esc(task.name)+(task.summary?' <span class="summary-label">RESUMO</span>':'');
@@ -245,7 +267,7 @@ function render(){
   $('#planned-finish').textContent=plannedFinishDate||'—';
 }
 body.addEventListener('change',e=>{if(!e.target.matches('.actual-input'))return;const t=tasks.find(x=>x.id===e.target.dataset.id);if(!t)return;t.actual=Math.max(0,Math.min(100,Number(e.target.value)||0));render()});
-document.querySelectorAll('.filter').forEach(button=>button.onclick=()=>{activeFilter=button.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===button));render()});$('#search').oninput=render;
+document.querySelectorAll('.filter').forEach(button=>button.onclick=()=>{activeFilter=button.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===button));render()});$('#search').oninput=render;document.querySelectorAll('.schedule-dimension-filters select').forEach(select=>select.onchange=render);
 $('#send-update').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra antes de enviar.');const items=tasks.filter(t=>!t.summary).map(t=>({activity_id:t.id,actual_pct:t.actual}));const {data,error}=await db.rpc('submit_progress',{target_project:selectedProject,items});if(error)return notify('Não foi possível enviar. '+error.message);tasks.forEach(t=>t.originalActual=t.actual);$('#last-update').textContent=new Date().toLocaleDateString('pt-BR');$('#last-update-engineer').textContent=profile?.display_name||profile?.email||'Nome não informado';$('#last-update-engineer').hidden=false;$('#table-help').textContent='Atualização enviada e registrada no histórico.';render();notify('Atualização enviada ao planejamento.');};
 $('#import-button').onclick=async()=>{
   const button=$('#import-button'),file=$('#schedule-file').files[0],project=projects.find(item=>item.id===selectedProject);
