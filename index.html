@@ -132,5 +132,31 @@
     </div>
     <div id="toast" role="status"></div>
     <script src="app.js?v=update-card-cleanup-20261003"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        let refreshingAfterWorkerUpdate = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (refreshingAfterWorkerUpdate) return;
+          refreshingAfterWorkerUpdate = true;
+          window.location.reload();
+        });
+
+        const checkForAppUpdate = () => {
+          navigator.serviceWorker.getRegistration('./')
+            .then(registration => registration?.update())
+            .catch(error => console.warn('Não foi possível verificar atualizações do app:', error));
+        };
+
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./service-worker-mobile.js', { updateViaCache: 'none' })
+            .then(() => checkForAppUpdate())
+            .catch(error => console.warn('Não foi possível ativar o modo offline do app:', error));
+        }, { once: true });
+
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') checkForAppUpdate();
+        });
+      }
+    </script>
   </body>
 </html>
