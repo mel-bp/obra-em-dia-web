@@ -10,7 +10,7 @@
     <title>Obra em Dia — Controle de Cronograma</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css?v=schedule-dimension-filters-20261005" />
+    <link rel="stylesheet" href="styles.css?v=schedule-import-project-confirmation-20261005" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase/config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -102,6 +102,16 @@
       </section>
     </main>
 
+    <dialog id="schedule-import-dialog" class="project-registration-dialog" aria-labelledby="schedule-import-title">
+      <form id="schedule-import-form" class="project-registration-form">
+        <div class="registration-dialog-heading"><div><p class="eyebrow">IMPORTAÇÃO</p><h2 id="schedule-import-title">Confirmar obra do cronograma</h2></div><button id="close-schedule-import" class="icon-button" type="button" aria-label="Fechar janela">×</button></div>
+        <p id="schedule-import-file-context" class="import-file-context"></p>
+        <label class="registration-project-label" for="import-project-select">Obra/projeto que receberá este arquivo</label>
+        <select id="import-project-select" required></select>
+        <p id="schedule-import-message" class="registration-message" role="status" aria-live="polite"></p>
+        <div class="registration-form-actions"><button class="button secondary" type="button" id="cancel-schedule-import">Cancelar</button><button id="confirm-schedule-import" class="button primary" type="submit">IMPORTAR CRONOGRAMA</button></div>
+      </form>
+    </dialog>
     <dialog id="project-registration-dialog" class="project-registration-dialog" aria-labelledby="registration-title">
       <form id="project-registration-form" class="project-registration-form">
         <div class="registration-dialog-heading"><div><p class="eyebrow">NOVO ACESSO</p><h2 id="registration-title">Cadastro de projeto</h2></div><button id="close-project-registration" class="icon-button" type="button" aria-label="Fechar janela">×</button></div>
@@ -142,7 +152,7 @@
       <button id="send-update" class="button primary">Enviar atualização</button>
     </div>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=schedule-dimension-filters-20261005"></script>
+    <script src="app.js?v=schedule-import-project-confirmation-20261005"></script>
     <script>
       if ('serviceWorker' in navigator) {
         let refreshingAfterWorkerUpdate = false;

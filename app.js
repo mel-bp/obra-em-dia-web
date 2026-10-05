@@ -142,6 +142,8 @@ async function loadProjects(preferredId){
   projects=uniqueProjects(allProjects);
   const select=$('#project-select');
   select.innerHTML='<option value="">Selecione uma obra</option>'+projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
+  const importSelect=$('#import-project-select');
+  if(importSelect)importSelect.innerHTML='<option value="">Selecione uma obra</option>'+projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
   const requestedId=preferredId||selectedProject;
   const requested=allProjects.find(p=>p.id===requestedId);
   const canonical=requested&&projects.find(p=>projectNameKey(p.name)===projectNameKey(requested.name));
@@ -152,8 +154,12 @@ async function loadProjects(preferredId){
 $('#project-select').onchange=()=>loadProject($('#project-select').value);
 function scheduleDateText(value){
   if(value instanceof Date&&!Number.isNaN(value.getTime()))return value.toLocaleDateString('pt-BR',{timeZone:'UTC'});
-  const text=String(value??'').trim(),iso=text.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/);
-  return iso?iso[3]+'/'+iso[2]+'/'+iso[1]:text;
+  const text=String(value??'').trim(),iso=text.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  if(iso)return iso[3]+'/'+iso[2]+'/'+iso[1];
+  const br=text.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})(?=$|\s)/);
+  if(br)return br[1].padStart(2,'0')+'/'+br[2].padStart(2,'0')+'/'+br[3];
+  const time=text.search(/\s+\d{1,2}:\d{2}(?::\d{2})?\b/);
+  return time>=0?text.slice(0,time).trim():text;
 }
 async function recoverScheduleMetadata(projectId,sourceFile,activities){
   const empty={dimensions:new Map(),plannedFinish:''};
@@ -269,12 +275,26 @@ function render(){
 body.addEventListener('change',e=>{if(!e.target.matches('.actual-input'))return;const t=tasks.find(x=>x.id===e.target.dataset.id);if(!t)return;t.actual=Math.max(0,Math.min(100,Number(e.target.value)||0));render()});
 document.querySelectorAll('.filter').forEach(button=>button.onclick=()=>{activeFilter=button.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===button));render()});$('#search').oninput=render;document.querySelectorAll('.schedule-dimension-filters select').forEach(select=>select.onchange=render);
 $('#send-update').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra antes de enviar.');const items=tasks.filter(t=>!t.summary).map(t=>({activity_id:t.id,actual_pct:t.actual}));const {data,error}=await db.rpc('submit_progress',{target_project:selectedProject,items});if(error)return notify('Não foi possível enviar. '+error.message);tasks.forEach(t=>t.originalActual=t.actual);$('#last-update').textContent=new Date().toLocaleDateString('pt-BR');$('#last-update-engineer').textContent=profile?.display_name||profile?.email||'Nome não informado';$('#last-update-engineer').hidden=false;$('#table-help').textContent='Atualização enviada e registrada no histórico.';render();notify('Atualização enviada ao planejamento.');};
-$('#import-button').onclick=async()=>{
-  const button=$('#import-button'),file=$('#schedule-file').files[0],project=projects.find(item=>item.id===selectedProject);
-  if(!project)return notify('Selecione o projeto que receberá o cronograma.');
-  if(!file)return notify('Selecione um arquivo Excel ou CSV.');
+function openScheduleImportDialog(){
+  if(!projects.length)return notify('Cadastre uma obra antes de importar um cronograma.');
+  const select=$('#import-project-select');
+  const currentProject=projects.find(project=>project.id===selectedProject);
+  select.value=currentProject?.id||projects[0].id;
+  const file=$('#schedule-file').files[0];
+  $('#schedule-import-file-context').textContent=file?'Arquivo selecionado: '+file.name:'Nenhum arquivo selecionado. Escolha um arquivo Excel ou CSV antes de confirmar.';
+  $('#schedule-import-message').textContent='';
+  $('#schedule-import-dialog').showModal();
+}
+$('#import-button').onclick=openScheduleImportDialog;
+$('#close-schedule-import').onclick=()=>$('#schedule-import-dialog').close();
+$('#cancel-schedule-import').onclick=()=>$('#schedule-import-dialog').close();
+$('#schedule-import-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const button=$('#confirm-schedule-import'),cancel=$('#cancel-schedule-import'),file=$('#schedule-file').files[0],project=projects.find(item=>item.id===$('#import-project-select').value),message=$('#schedule-import-message');
+  if(!project){message.textContent='Selecione a obra que receberá este cronograma.';return}
+  if(!file){message.textContent='Selecione um arquivo Excel ou CSV antes de confirmar.';return}
   let phase='Lendo o arquivo';
-  button.disabled=true;button.textContent='Importando…';
+  button.disabled=true;cancel.disabled=true;$('#close-schedule-import').disabled=true;button.textContent='Importando…';message.textContent='Importando o cronograma para '+project.name+'…';
   try{
     const buffer=await file.arrayBuffer(),wb=XLSX.read(buffer,{type:'array',raw:false,cellDates:true});let parsed=null;
     for(const sheetName of wb.SheetNames){const rows=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{header:1,defval:'',raw:false});const hi=headerRow(rows);if(hi>=0){parsed={sheetName,rows,headerIndex:hi};break}}
@@ -294,10 +314,17 @@ $('#import-button').onclick=async()=>{
     if(replaceError){await db.storage.from('schedule-files').remove([path]);throw replaceError}
     $('#schedule-file').value='';
     await loadProjects(project.id);
+    $('#schedule-import-dialog').close();
     notify(parsedActivities.length+' atividades importadas para '+project.name+'. Cronograma substituído; os envios anteriores foram preservados no histórico.');
-  }catch(error){console.error(error);notify(phase+': '+(error.message||'falha inesperada.'))}
-  finally{button.disabled=false;button.textContent='Importar/atualizar cronograma'}
-};
+  }catch(error){
+    console.error(error);
+    const detail=phase+': '+(error.message||'falha inesperada.');
+    message.textContent=detail;
+    notify(detail);
+  }finally{
+    button.disabled=false;cancel.disabled=false;$('#close-schedule-import').disabled=false;button.textContent='IMPORTAR CRONOGRAMA';
+  }
+});
 
 function updateAssignmentRowButtons(){
   const rows=[...$('#assignment-engineer-rows').querySelectorAll('.engineer-registration-row')];
