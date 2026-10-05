@@ -93,3 +93,5 @@
 #add-engineer-dialog .engineer-registration-row label{display:block;font-size:12px;font-weight:700}
 #add-engineer-dialog .engineer-registration-row input{display:block;width:100%;margin-top:7px;border:1px solid #c6d9ce;border-radius:7px;padding:11px 12px;font:inherit;background:#fff}
 @media(max-width:700px){.projects-page{padding:26px 16px 70px}.projects-page-heading{align-items:stretch;flex-direction:column}.projects-heading-actions{display:grid;grid-template-columns:1fr 1fr}.project-card{padding:15px}.project-card-heading{flex-direction:column}.project-card-actions{width:100%;justify-content:stretch}.project-card-actions .button{flex:1}.project-edit-actions{flex-direction:column}.project-edit-actions .button{width:100%}}
+
+.metric-author #export-button{display:block;margin-top:10px;width:100%;white-space:normal}#export-button:disabled{opacity:.55;cursor:not-allowed}
