@@ -10,7 +10,7 @@
     <title>Obra em Dia — Controle de Cronograma</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css?v=schedule-import-project-confirmation-20261005" />
+    <link rel="stylesheet" href="styles.css?v=project-management-20261005" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase/config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -59,7 +59,7 @@
       <section id="admin-tools" class="admin-tools" hidden>
         <div class="admin-tool admin-project-registration">
           <h2>Projetos</h2><p>Cadastre um projeto e associe os engenheiros responsáveis.</p>
-          <button id="open-project-registration" class="button primary" type="button">CADASTRO DE PROJETO</button>
+          <div class="admin-project-actions"><button id="open-project-registration" class="button primary" type="button">CADASTRO DE PROJETO</button><button id="open-project-list" class="button secondary" type="button">VER PROJETOS</button></div>
         </div>
         <div class="admin-tool">
           <h2>Importar ou atualizar cronograma</h2><p>Selecione a obra acima. O novo cronograma substituirá o anterior e reiniciará os percentuais enviados anteriormente.</p>
@@ -152,7 +152,7 @@
       <button id="send-update" class="button primary">Enviar atualização</button>
     </div>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=schedule-import-project-confirmation-20261005"></script>
+    <script src="app.js?v=project-management-20261005"></script>
     <script>
       if ('serviceWorker' in navigator) {
         let refreshingAfterWorkerUpdate = false;

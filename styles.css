@@ -53,3 +53,43 @@
 .import-file-context{margin:0 0 20px;padding:10px 12px;border-radius:7px;background:var(--canvas);color:var(--muted);font-size:12px;overflow-wrap:anywhere}
 #import-project-select{display:block;width:100%;margin-top:7px;border:1px solid #c6d9ce;border-radius:7px;padding:11px 12px;font:inherit;background:#fff}
 #schedule-import-form .registration-message{min-height:20px;margin:13px 0 0;color:var(--red);font-size:12px;line-height:1.45}
+.admin-project-actions{display:grid;gap:8px;margin-top:10px}
+.admin-project-actions .button{width:100%;margin:0}
+.projects-page{max-width:1160px;margin:0 auto;padding:38px 28px 90px}
+.projects-page-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:22px}
+.projects-page-heading h1{font-size:30px}
+.projects-page-heading p:not(.eyebrow){margin:9px 0 0;color:var(--muted);line-height:1.45}
+.projects-heading-actions{display:flex;gap:8px;flex-wrap:wrap}
+.projects-message{min-height:20px;margin:0 0 14px;color:var(--teal);font-size:13px}
+.projects-message.error{color:var(--red)}
+.project-list{display:grid;gap:14px}
+.project-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:19px}
+.project-card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.project-card-heading .eyebrow{margin-bottom:5px}
+.project-card-heading h2{font-size:20px;margin:0}
+.project-card-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.project-created-by{margin:11px 0 16px;color:var(--muted);font-size:12px}
+.project-created-by strong{color:var(--ink)}
+.project-engineers h3,.project-member-management h3{font-size:14px;margin:0 0 8px}
+.project-engineer-list{display:flex;flex-wrap:wrap;gap:7px;list-style:none;margin:0;padding:0}
+.project-engineer-list li{display:flex;flex-direction:column;gap:2px;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-weight:650;font-size:12px}
+.project-engineer-list small,.project-member-choice small{color:var(--muted);font-weight:400;font-size:11px}
+.project-engineer-list .no-members,.no-members{color:var(--muted);font-weight:400}
+.project-edit-panel{margin-top:18px;padding-top:17px;border-top:1px solid var(--line)}
+.project-name-field{display:block;font-size:12px;font-weight:700}
+.project-name-input{display:block;width:100%;max-width:540px;margin-top:7px;border:1px solid #c6d9ce;border-radius:7px;padding:11px 12px;font:inherit;background:#fff}
+.project-edit-actions{display:flex;gap:8px;margin-top:10px}
+.project-member-management{margin:20px 0 12px;padding-top:16px;border-top:1px solid var(--line)}
+.project-member-management p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.45}
+.project-member-choices{display:grid;gap:7px;margin:0 0 11px}
+.project-member-choice{display:flex;align-items:center;gap:9px;width:min(100%,540px);padding:9px 10px;border:1px solid var(--line);border-radius:7px;cursor:pointer}
+.project-member-choice input{width:16px;height:16px;accent-color:var(--teal)}
+.project-member-choice span{display:grid;gap:2px;font-size:12px;font-weight:650}
+.button.danger{background:#b34d3e;color:#fff;border-color:#b34d3e}
+.button.danger:hover{background:#963c30}
+.confirmation-copy{margin:0 0 20px;color:var(--ink);font-size:14px;line-height:1.55;overflow-wrap:anywhere}
+.projects-empty{background:#fff;border:1px solid var(--line);border-radius:9px;padding:22px;color:var(--muted)}
+#add-engineer-dialog .registration-engineers-heading{margin:0 0 12px;color:var(--muted);font-size:12px;line-height:1.45}
+#add-engineer-dialog .engineer-registration-row label{display:block;font-size:12px;font-weight:700}
+#add-engineer-dialog .engineer-registration-row input{display:block;width:100%;margin-top:7px;border:1px solid #c6d9ce;border-radius:7px;padding:11px 12px;font:inherit;background:#fff}
+@media(max-width:700px){.projects-page{padding:26px 16px 70px}.projects-page-heading{align-items:stretch;flex-direction:column}.projects-heading-actions{display:grid;grid-template-columns:1fr 1fr}.project-card{padding:15px}.project-card-heading{flex-direction:column}.project-card-actions{width:100%;justify-content:stretch}.project-card-actions .button{flex:1}.project-edit-actions{flex-direction:column}.project-edit-actions .button{width:100%}}

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#064b35" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/icon-192.svg" />
+    <title>Projetos cadastrados — Obra em Dia</title>
+    <link rel="stylesheet" href="styles.css?v=project-management-20261005" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase/config.js"></script>
+    <script src="projects.js?v=project-management-20261005" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><img class="brand-logo" src="entrecon-logo.svg" alt="Entrecon Gestão de Projetos" /><span class="brand-divider" aria-hidden="true"></span><span class="app-brand">Obra em Dia</span></div>
+      <div class="project-name">Projetos cadastrados</div>
+      <div class="user"><span class="avatar" id="avatar">?</span><span id="user-label">Carregando…</span><button id="logout-button" class="button secondary" type="button">Sair</button></div>
+    </header>
+    <main class="projects-page">
+      <div class="projects-page-heading">
+        <div><p class="eyebrow">ADMINISTRAÇÃO</p><h1>Projetos cadastrados</h1><p>Consulte responsáveis, edite projetos e gerencie os acessos dos engenheiros.</p></div>
+        <div class="projects-heading-actions"><button id="refresh-projects" class="button secondary" type="button">Atualizar lista</button><button id="back-to-app" class="button secondary" type="button">Voltar ao cronograma</button></div>
+      </div>
+      <p id="projects-message" class="projects-message" role="status" aria-live="polite"></p>
+      <section id="project-list" class="project-list" aria-live="polite"><p class="projects-empty">Carregando projetos…</p></section>
+    </main>
+    <dialog id="confirmation-dialog" class="project-registration-dialog" aria-labelledby="confirmation-title">
+      <form id="confirmation-form" class="project-registration-form">
+        <div class="registration-dialog-heading"><div><p class="eyebrow">CONFIRMAÇÃO</p><h2 id="confirmation-title">Confirmar ação</h2></div><button id="close-confirmation" class="icon-button" type="button" aria-label="Fechar janela">×</button></div>
+        <p id="confirmation-copy" class="confirmation-copy"></p>
+        <div class="registration-form-actions"><button id="cancel-confirmation" class="button secondary" type="button">Cancelar</button><button id="confirm-action" class="button danger" type="submit">Confirmar</button></div>
+      </form>
+    </dialog>
+    <dialog id="add-engineer-dialog" class="project-registration-dialog" aria-labelledby="add-engineer-title">
+      <form id="add-engineer-form" class="project-registration-form">
+        <div class="registration-dialog-heading"><div><p class="eyebrow">ACESSO AO PROJETO</p><h2 id="add-engineer-title">Adicionar engenheiros</h2></div><button id="close-add-engineer" class="icon-button" type="button" aria-label="Fechar janela">×</button></div>
+        <p class="assignment-project-context">Projeto: <strong id="add-engineer-project-name"></strong></p>
+        <p class="registration-engineers-heading">Informe os engenheiros que terão acesso a este projeto.</p>
+        <div id="add-engineer-rows" class="engineer-registration-rows">
+          <div class="engineer-registration-row">
+            <label>Nome do engenheiro<input class="add-engineer-name" type="text" maxlength="120" autocomplete="name" required /></label>
+            <label>E-mail do engenheiro<input class="add-engineer-email" type="email" maxlength="254" autocomplete="email" required /></label>
+            <button class="button secondary remove-engineer-row" type="button" aria-label="Remover engenheiro" hidden>−</button>
+          </div>
+        </div>
+        <button id="add-engineer-row" class="button secondary add-engineer-row" type="button">+ Adicionar engenheiro</button>
+        <p id="add-engineer-message" class="registration-message" role="status" aria-live="polite"></p>
+        <div class="registration-form-actions"><button id="cancel-add-engineer" class="button secondary" type="button">Cancelar</button><button id="submit-add-engineers" class="button primary" type="submit">ADICIONAR ENGENHEIROS</button></div>
+      </form>
+    </dialog>
+    <div id="toast" role="status"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        let refreshingAfterWorkerUpdate = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (refreshingAfterWorkerUpdate) return;
+          refreshingAfterWorkerUpdate = true;
+          window.location.reload();
+        });
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./service-worker-mobile.js', { updateViaCache: 'none' })
+            .then(registration => registration.update())
+            .catch(error => console.warn('Não foi possível atualizar o app offline:', error));
+        }, { once: true });
+      }
+    </script>
+  </body>
+</html>

@@ -94,6 +94,7 @@ function addEngineerRegistrationRow(){
   updateEngineerRowButtons();
 }
 $('#open-project-registration').onclick=()=>{$('#project-registration-message').textContent='';$('#project-registration-dialog').showModal()};
+$('#open-project-list').onclick=()=>{window.location.href='./projects.html'};
 $('#close-project-registration').onclick=()=>$('#project-registration-dialog').close();
 $('#cancel-project-registration').onclick=()=>$('#project-registration-dialog').close();
 $('#add-engineer-row').onclick=addEngineerRegistrationRow;
