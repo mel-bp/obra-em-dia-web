@@ -1,5 +1,5 @@
-const CACHE_NAME='obra-em-dia-v5';
-const APP_FILES=['./','./index.html','./projects.html','./projects.js?v=project-management-20261005','./styles.css?v=project-management-20261005','./app.js?v=project-management-20261005','./supabase/config.js','./manifest.webmanifest','./entrecon-logo.svg','./icons/icon-192.svg','./icons/icon-512.svg'];
+const CACHE_NAME='obra-em-dia-v6';
+const APP_FILES=['./','./index.html','./projects.html','./projects.js?v=project-management-20261006','./styles.css?v=project-management-20261006','./app.js?v=project-management-20261006','./supabase/config.js','./manifest.webmanifest','./entrecon-logo.svg','./icons/icon-192.svg','./icons/icon-512.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.addAll(APP_FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE_NAME).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{if(event.request.method!=='GET')return;event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(response=>{if(new URL(event.request.url).origin===self.location.origin){const copy=response.clone();caches.open(CACHE_NAME).then(cache=>cache.put(event.request,copy))}return response}))) });
