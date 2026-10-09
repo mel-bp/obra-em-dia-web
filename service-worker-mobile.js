@@ -1,11 +1,11 @@
-const CACHE_NAME = 'obra-em-dia-mobile-v4';
+const CACHE_NAME = 'obra-em-dia-mobile-v5';
 const APP_FILES = [
   './',
   './index.html',
   './projects.html',
   './projects.js?v=project-management-20261006',
   './styles.css?v=project-management-20261006',
-  './app.js?v=project-management-20261006',
+  './app.js?v=activities-fast-20261009',
   './supabase/config.js',
   './manifest.webmanifest',
   './entrecon-logo.svg',

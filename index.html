@@ -11,9 +11,8 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
     <link rel="stylesheet" href="styles.css?v=project-management-20261006" />
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="supabase/config.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+    <script src="supabase/config.js" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -151,7 +150,7 @@
       <button id="send-update" class="button primary">Enviar atualização</button>
     </div>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=project-management-20261006"></script>
+    <script src="app.js?v=activities-fast-20261009" defer></script>
     <script>
       if ('serviceWorker' in navigator) {
         let refreshingAfterWorkerUpdate = false;
