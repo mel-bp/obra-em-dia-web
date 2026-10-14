@@ -1,6 +1,6 @@
 const cfg=window.OBRA_SUPABASE,body=document.querySelector('#schedule-body'),toast=document.querySelector('#toast');
 let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,latestUpdateProjectId=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite'),projectLoadId=0,authLoadId=0,xlsxPromise=null,pendingSubmission=null;
-const $=selector=>document.querySelector(selector),pendingChange=t=>!t.summary&&t.actual!==t.originalActual,changed=t=>!t.summary&&(t.actual!==t.initialActual||pendingChange(t));
+const $=selector=>document.querySelector(selector),pendingChange=t=>!t.summary&&t.actual!==t.originalActual,submittedChange=t=>!t.summary&&t.originalActual!==t.initialActual,changed=t=>submittedChange(t)||pendingChange(t);
 const esc=v=>String(v??'').replace(/[&<>\'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 function notify(message){toast.textContent=message;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),4000)}
 async function functionErrorMessage(error,fallback){const context=error?.context;if(context&&typeof context.json==='function'){try{const response=await context.json();if(typeof response?.error==='string'&&response.error)return response.error;if(typeof response?.message==='string'&&response.message)return response.message}catch{}}return error?.message||fallback}
@@ -532,6 +532,58 @@ $('#engineer-assignment-form').addEventListener('submit',async event=>{
 });
 
 async function loadSubmissions(){const {data:s,error}=await db.from('submissions').select('id,project_id,submitted_by,submitted_at').order('submitted_at',{ascending:false}).limit(20);if(error){$('#submission-list').textContent=error.message;return}if(!s?.length){$('#submission-list').textContent='Nenhuma atualização recebida ainda.';return}const projectIds=[...new Set(s.map(x=>x.project_id))],userIds=[...new Set(s.map(x=>x.submitted_by))];const [{data:p},{data:u}]=await Promise.all([db.from('projects').select('id,name').in('id',projectIds),db.from('profiles').select('id,email,display_name').in('id',userIds)]);const pm=new Map((p||[]).map(x=>[x.id,x.name])),um=new Map((u||[]).map(x=>[x.id,x.display_name||x.email]));$('#submission-list').innerHTML=s.map(x=>`<div class="submission-row"><span><b>${esc(pm.get(x.project_id)||'Obra')}</b><br><small>${esc(um.get(x.submitted_by)||'Engenheiro')}</small></span><small>${new Date(x.submitted_at).toLocaleString('pt-BR')}</small></div>`).join('')}
-$('#export-button').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra para exportar.');if(latestUpdateProjectId!==selectedProject)return notify('Aguarde uma atualização do engenheiro desta obra para baixar o Excel atualizado.');const project=projects.find(p=>p.id===selectedProject);if(!project)return;if(!project.source_file)return notify('Este projeto ainda não tem cronograma para exportar.');const path=`${project.id}/${project.source_file}`;const {data:file,error}=await db.storage.from('schedule-files').download(path);if(error)return notify('Falha ao baixar o original. '+error.message);try{const XLSX=await loadXlsx();const wb=XLSX.read(await file.arrayBuffer(),{type:'array',raw:false,cellDates:true});for(const t of tasks){if(t.summary||t.sourceActualColumn===null||t.sourceActualColumn===undefined)continue;const ws=wb.Sheets[t.sourceSheet];if(!ws)continue;const addr=XLSX.utils.encode_cell({r:t.sourceRow,c:t.sourceActualColumn});const cell=ws[addr]||{};const fraction=(String(cell.z||'').includes('%')||(typeof cell.v==='number'&&cell.v>=0&&cell.v<=1));ws[addr]={...cell,t:'n',v:fraction?t.actual/100:t.actual}}XLSX.writeFile(wb,`${project.name.replace(/[\\/:*?"<>|]/g,'_')}_atualizado.xlsx`);notify('Excel atualizado baixado.')}catch(e){notify('Falha ao gerar o Excel. '+e.message)}};
+function updateExportWorkbook(XLSX,workbook,scheduleTasks){
+  const tasksBySheet=new Map();
+  for(const task of scheduleTasks){
+    const row=Number(task.sourceRow),column=Number(task.sourceActualColumn),value=Number(task.originalActual);
+    const sheet=workbook.Sheets[task.sourceSheet];
+    if(!sheet||task.sourceRow==null||task.sourceActualColumn==null||!Number.isInteger(row)||!Number.isInteger(column)||row<0||column<0)throw Error('Uma atividade não tem posição válida no cronograma original.');
+    if(!Number.isFinite(value))throw Error('Uma atividade tem percentual inválido para exportação.');
+    const address=XLSX.utils.encode_cell({r:row,c:column}),original=sheet[address];
+    sheet[address]={t:'n',v:value/100,z:'0%'};
+    if(original?.s!==undefined)sheet[address].s=original.s;
+    if(!tasksBySheet.has(task.sourceSheet))tasksBySheet.set(task.sourceSheet,[]);
+    tasksBySheet.get(task.sourceSheet).push(task);
+  }
+  for(const [sheetName,sheetTasks] of tasksBySheet){
+    const sheet=workbook.Sheets[sheetName],range=XLSX.utils.decode_range(sheet['!ref']);
+    const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:false});
+    const headerIndex=headerRow(rows);
+    if(headerIndex<0)throw Error('Não encontrei o cabeçalho das atividades na aba '+sheetName+'.');
+    const headerRowIndex=range.s.r+headerIndex;
+    let alteredColumn=-1;
+    for(let column=range.s.c;column<=range.e.c;column++){
+      if(key(sheet[XLSX.utils.encode_cell({r:headerRowIndex,c:column})]?.v)==='alterada'){alteredColumn=column;break}
+    }
+    if(alteredColumn<0)alteredColumn=++range.e.c;
+    const headerAddress=XLSX.utils.encode_cell({r:headerRowIndex,c:alteredColumn});
+    const adjacentHeader=sheet[XLSX.utils.encode_cell({r:headerRowIndex,c:alteredColumn-1})];
+    sheet[headerAddress]={t:'s',v:'Alterada'};
+    if(adjacentHeader?.s!==undefined)sheet[headerAddress].s=adjacentHeader.s;
+    for(const task of sheetTasks){
+      const row=Number(task.sourceRow),address=XLSX.utils.encode_cell({r:row,c:alteredColumn});
+      sheet[address]={t:'s',v:submittedChange(task)?'sim':'não'};
+      range.e.r=Math.max(range.e.r,row);
+    }
+    sheet['!ref']=XLSX.utils.encode_range(range);
+  }
+}
+$('#export-button').onclick=async()=>{
+  if(!selectedProject)return notify('Selecione uma obra para exportar.');
+  if(latestUpdateProjectId!==selectedProject)return notify('Aguarde uma atualização do engenheiro desta obra para baixar o Excel atualizado.');
+  const project=projects.find(p=>p.id===selectedProject);
+  if(!project)return;
+  if(!project.source_file)return notify('Este projeto ainda não tem cronograma para exportar.');
+  const exportTasks=tasks.slice();
+  const path=`${project.id}/${project.source_file}`;
+  const {data:file,error}=await db.storage.from('schedule-files').download(path);
+  if(error)return notify('Falha ao baixar o original. '+error.message);
+  try{
+    const XLSX=await loadXlsx(),workbook=XLSX.read(await file.arrayBuffer(),{type:'array',raw:false,cellDates:true});
+    updateExportWorkbook(XLSX,workbook,exportTasks);
+    XLSX.writeFile(workbook,`${project.name.replace(/[\\/:*?"<>|]/g,'_')}_atualizado.xlsx`);
+    notify('Excel atualizado baixado.');
+  }catch(error){notify('Falha ao gerar o Excel. '+error.message)}
+};
 window.addEventListener('focus',()=>{if(profile?.role==='admin')loadSubmissions()});setInterval(()=>{if(profile?.role==='admin')loadSubmissions()},60000);
 render();start();
