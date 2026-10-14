@@ -95,3 +95,16 @@
 @media(max-width:700px){.projects-page{padding:26px 16px 70px}.projects-page-heading{align-items:stretch;flex-direction:column}.projects-heading-actions{display:grid;grid-template-columns:1fr 1fr}.project-card{padding:15px}.project-card-heading{flex-direction:column}.project-card-actions{width:100%;justify-content:stretch}.project-card-actions .button{flex:1}.project-edit-actions{flex-direction:column}.project-edit-actions .button{width:100%}}
 
 .metric-author #export-button{display:block;margin-top:10px;width:100%;white-space:normal}#export-button:disabled{opacity:.55;cursor:not-allowed}
+
+.update-review-dialog{width:min(620px,calc(100vw - 24px))}
+.update-review-intro{margin:0;color:var(--muted);line-height:1.5}
+.update-review-count{margin:20px 0 9px;color:var(--navy);font-weight:750}
+.update-review-list{list-style:none;display:grid;gap:8px;max-height:min(44vh,420px);overflow-y:auto;margin:0;padding:0 3px 0 0}
+.update-review-item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#fbfdfb}
+.update-review-item>div{min-width:0}
+.update-review-id{display:block;margin-bottom:3px;color:var(--muted);font-size:11px}
+.update-review-item strong{display:block;line-height:1.4;overflow-wrap:anywhere}
+.update-review-values{flex:none;white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums}
+.update-review-values b{color:var(--navy)}
+.update-review-dialog button:disabled{opacity:.65;cursor:wait}
+@media(max-width:480px){.update-review-item{align-items:flex-start;flex-direction:column;gap:8px}.update-review-values{align-self:flex-end}}

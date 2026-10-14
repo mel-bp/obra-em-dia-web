@@ -10,7 +10,7 @@
     <title>Obra em Dia — Controle de Cronograma</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css?v=project-management-20261006" />
+    <link rel="stylesheet" href="styles.css?v=update-review-20261009" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
     <script src="supabase/config.js" defer></script>
   </head>
@@ -147,10 +147,20 @@
     </dialog>
     <div id="engineer-panel" class="engineer-panel" hidden>
       <div><b>Visão do engenheiro</b><span>Atualize o avanço executado e envie para o planejamento.</span></div>
-      <button id="send-update" class="button primary">Enviar atualização</button>
+      <button id="send-update" class="button primary" type="button">Enviar atualização</button>
     </div>
+    <dialog id="update-review-dialog" class="project-registration-dialog update-review-dialog" aria-labelledby="update-review-title" aria-describedby="update-review-intro">
+      <form id="update-review-form" class="project-registration-form">
+        <div class="registration-dialog-heading"><div><p class="eyebrow">REVISÃO DO AVANÇO</p><h2 id="update-review-title">Confirmar atualização</h2></div><button id="close-update-review" class="icon-button" type="button" aria-label="Fechar janela">×</button></div>
+        <p id="update-review-intro" class="update-review-intro"></p>
+        <p id="update-review-count" class="update-review-count"></p>
+        <ol id="update-review-list" class="update-review-list"></ol>
+        <p id="update-review-message" class="registration-message" role="status" aria-live="polite"></p>
+        <div class="registration-form-actions"><button id="cancel-update-review" class="button secondary" type="button">Voltar e editar</button><button id="confirm-update" class="button primary" type="submit">Confirmar envio</button></div>
+      </form>
+    </dialog>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=activities-fast-20261009" defer></script>
+    <script src="app.js?v=changed-activities-20261014" defer></script>
     <script>
       if ('serviceWorker' in navigator) {
         let refreshingAfterWorkerUpdate = false;

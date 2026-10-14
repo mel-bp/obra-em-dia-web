@@ -1,6 +1,6 @@
 const cfg=window.OBRA_SUPABASE,body=document.querySelector('#schedule-body'),toast=document.querySelector('#toast');
-let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,latestUpdateProjectId=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite'),projectLoadId=0,authLoadId=0,xlsxPromise=null;
-const $=selector=>document.querySelector(selector),changed=t=>!t.summary&&t.actual!==t.originalActual;
+let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,latestUpdateProjectId=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite'),projectLoadId=0,authLoadId=0,xlsxPromise=null,pendingSubmission=null;
+const $=selector=>document.querySelector(selector),pendingChange=t=>!t.summary&&t.actual!==t.originalActual,changed=t=>!t.summary&&(t.actual!==t.initialActual||pendingChange(t));
 const esc=v=>String(v??'').replace(/[&<>\'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 function notify(message){toast.textContent=message;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),4000)}
 async function functionErrorMessage(error,fallback){const context=error?.context;if(context&&typeof context.json==='function'){try{const response=await context.json();if(typeof response?.error==='string'&&response.error)return response.error;if(typeof response?.message==='string'&&response.message)return response.message}catch{}}return error?.message||fallback}
@@ -68,7 +68,7 @@ async function start(){
   });
 }
 async function enterApp(authUser){if(user?.id===authUser.id)return;const loadId=++authLoadId;user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',authUser.id).maybeSingle();if(loadId!==authLoadId)return;if(error||!p){leaveApp();setLoginMessage('Perfil não encontrado. Execute schema.sql e confirme seu perfil no Supabase.');return}profile=p;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-tools').hidden=p.role!=='admin';$('#open-assign-engineer').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'&&loadId===authLoadId)await loadSubmissions() }
-function leaveApp(){authLoadId++;projectLoadId++;user=null;profile=null;projects=[];tasks=[];selectedProject=null;latestUpdateProjectId=null;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
+function leaveApp(){authLoadId++;projectLoadId++;if($('#update-review-dialog').open)$('#update-review-dialog').close();user=null;profile=null;projects=[];tasks=[];selectedProject=null;latestUpdateProjectId=null;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
 $('#login-form').addEventListener('submit',async e=>{
   e.preventDefault();
   if(!db){setLoginMessage('A conexão de autenticação não foi inicializada. Atualize a página e tente novamente.');return}
@@ -273,7 +273,7 @@ async function loadProject(projectId){
   plannedFinishDate='';
   tasks=activities.map(a=>{
     const actual=values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct);
-    return {id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),actual,originalActual:actual,sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column,macro:a.macro??'',sector:a.sector??'',local:a.activity_local??'',sourceMacroColumn:a.source_macro_column,sourceSectorColumn:a.source_sector_column,sourceLocalColumn:a.source_local_column};
+    return {id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),initialActual:Number(a.initial_actual_pct),actual,originalActual:actual,sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column,macro:a.macro??'',sector:a.sector??'',local:a.activity_local??'',sourceMacroColumn:a.source_macro_column,sourceSectorColumn:a.source_sector_column,sourceLocalColumn:a.source_local_column};
   });
   populateDimensionFilters();
   $('#send-update').disabled=!tasks.some(t=>!t.summary);
@@ -369,7 +369,56 @@ function render(){
 }
 body.addEventListener('change',e=>{if(!e.target.matches('.actual-input'))return;const t=tasks.find(x=>x.id===e.target.dataset.id);if(!t)return;t.actual=Math.max(0,Math.min(100,Number(e.target.value)||0));e.target.value=t.actual;if(activeFilter==='changed'){render();return}e.target.closest('tr')?.classList.toggle('changed',changed(t));$('#changed-count').textContent=tasks.filter(task=>changed(task)).length});
 document.querySelectorAll('.filter').forEach(button=>button.onclick=()=>{activeFilter=button.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===button));render()});$('#search').oninput=render;document.querySelectorAll('.schedule-dimension-filters select').forEach(select=>select.onchange=render);
-$('#send-update').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra antes de enviar.');const items=tasks.filter(t=>!t.summary).map(t=>({activity_id:t.id,actual_pct:t.actual}));const {data,error}=await db.rpc('submit_progress',{target_project:selectedProject,items});if(error)return notify('Não foi possível enviar. '+error.message);tasks.forEach(t=>t.originalActual=t.actual);latestUpdateProjectId=selectedProject;$('#export-button').disabled=!projects.find(p=>p.id===selectedProject)?.source_file;$('#last-update').textContent=new Date().toLocaleDateString('pt-BR');$('#last-update-engineer').textContent=profile?.display_name||profile?.email||'Nome não informado';$('#last-update-engineer').hidden=false;$('#table-help').textContent='Atualização enviada e registrada no histórico.';$('#changed-count').textContent='0';body.querySelectorAll('tr.changed').forEach(row=>row.classList.remove('changed'));if(activeFilter==='changed')render();notify('Atualização enviada ao planejamento.');};
+const updateReviewDialog=$('#update-review-dialog');
+function closeUpdateReview(){pendingSubmission=null;if(updateReviewDialog.open)updateReviewDialog.close()}
+$('#close-update-review').onclick=closeUpdateReview;
+$('#cancel-update-review').onclick=closeUpdateReview;
+updateReviewDialog.addEventListener('close',()=>{if(updateReviewDialog.open)return;pendingSubmission=null;$('#update-review-message').textContent=''});
+updateReviewDialog.addEventListener('cancel',event=>{if($('#confirm-update').disabled)event.preventDefault()});
+$('#send-update').onclick=()=>{
+  if(!selectedProject)return notify('Selecione uma obra antes de enviar.');
+  if(document.activeElement?.matches('.actual-input'))document.activeElement.blur();
+  const changes=tasks.filter(pendingChange);
+  if(!changes.length)return notify('Altere o avanço de pelo menos uma atividade antes de enviar.');
+  const project=projects.find(p=>p.id===selectedProject);
+  pendingSubmission={projectId:selectedProject,items:tasks.filter(task=>!task.summary).map(task=>({activity_id:task.id,actual_pct:task.actual}))};
+  $('#update-review-intro').textContent='Confira os avanços da obra '+(project?.name||'selecionada')+' antes de enviar ao planejamento.';
+  $('#update-review-count').textContent=changes.length+' '+(changes.length===1?'atividade alterada':'atividades alteradas');
+  $('#update-review-list').innerHTML=changes.map(task=>'<li class="update-review-item"><div><span class="update-review-id">Atividade '+esc(task.activityId)+'</span><strong>'+esc(task.name)+'</strong></div><span class="update-review-values">'+esc(task.originalActual)+'% <span aria-hidden="true">→</span> <b>'+esc(task.actual)+'%</b></span></li>').join('');
+  $('#update-review-message').textContent='';
+  updateReviewDialog.showModal();
+};
+$('#update-review-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  if(!pendingSubmission||$('#confirm-update').disabled)return;
+  const submission=pendingSubmission,button=$('#confirm-update'),message=$('#update-review-message');
+  button.disabled=true;
+  button.textContent='Enviando…';
+  $('#cancel-update-review').disabled=true;
+  $('#close-update-review').disabled=true;
+  message.textContent='';
+  try{
+    const {error}=await db.rpc('submit_progress',{target_project:submission.projectId,items:submission.items});
+    if(error){message.textContent='Não foi possível enviar. '+error.message;return}
+    tasks.forEach(task=>task.originalActual=task.actual);
+    latestUpdateProjectId=submission.projectId;
+    $('#export-button').disabled=!projects.find(project=>project.id===submission.projectId)?.source_file;
+    $('#last-update').textContent=new Date().toLocaleDateString('pt-BR');
+    $('#last-update-engineer').textContent=profile?.display_name||profile?.email||'Nome não informado';
+    $('#last-update-engineer').hidden=false;
+    $('#table-help').textContent='Atualização enviada e registrada no histórico.';
+    render();
+    closeUpdateReview();
+    notify('Atualização enviada ao planejamento.');
+  }catch(error){
+    message.textContent='Não foi possível enviar. '+(error?.message||'Tente novamente.');
+  }finally{
+    button.disabled=false;
+    button.textContent='Confirmar envio';
+    $('#cancel-update-review').disabled=false;
+    $('#close-update-review').disabled=false;
+  }
+});
 function openScheduleImportDialog(){
   if(!projects.length)return notify('Cadastre uma obra antes de importar um cronograma.');
   const select=$('#import-project-select');
