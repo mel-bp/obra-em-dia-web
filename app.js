@@ -1,6 +1,8 @@
 const cfg=window.OBRA_SUPABASE,body=document.querySelector('#schedule-body'),toast=document.querySelector('#toast');
-let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,latestUpdateProjectId=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite'),projectLoadId=0,authLoadId=0,xlsxPromise=null,pendingSubmission=null;
-const $=selector=>document.querySelector(selector),pendingChange=t=>!t.summary&&t.actual!==t.originalActual,changed=t=>!t.summary&&(t.actual!==t.initialActual||pendingChange(t));
+let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,latestUpdateProjectId=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite'),projectLoadId=0,authLoadId=0,xlsxPromise=null,pendingSubmission=null,notificationProjectId=new URLSearchParams(location.search).get('project');
+let logoLoadId=0;
+const VAPID_PUBLIC_KEY='BBtoMj-PNwjcJaxWmYzToLm8nmAS61dqZorAnEL2ZhkMOQy4GV98M7BfHAiPrch4Y1Iuor50c8Ksy-rCZ09j5SU';
+const $=selector=>document.querySelector(selector),pendingChange=t=>!t.summary&&t.actual!==t.originalActual,submittedChange=t=>!t.summary&&t.originalActual!==t.initialActual,changed=t=>submittedChange(t)||pendingChange(t);
 const esc=v=>String(v??'').replace(/[&<>\'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 function notify(message){toast.textContent=message;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),4000)}
 async function functionErrorMessage(error,fallback){const context=error?.context;if(context&&typeof context.json==='function'){try{const response=await context.json();if(typeof response?.error==='string'&&response.error)return response.error;if(typeof response?.message==='string'&&response.message)return response.message}catch{}}return error?.message||fallback}
@@ -56,19 +58,103 @@ function setLoginView(view){
   if(view==='forgot'){$('#forgot-email').value=$('#login-email').value;setRecoveryMessage('')}
   if(view==='recovery')setRecoveryMessage('');
 }
+function showSessionRetry(message){$('#session-loading-message').textContent=message;$('#retry-session').hidden=false;$('#session-loading').hidden=false;$('#login-screen').hidden=true;$('#app-main').hidden=true;$('#logout-button').hidden=true}
+$('#retry-session').onclick=async()=>{
+  const button=$('#retry-session');button.disabled=true;$('#session-loading-message').textContent='Restaurando sua sessão…';
+  try{
+    const {data,error}=await db.auth.getSession();
+    if(error)throw error;
+    if(data?.session?.user)await enterApp(data.session.user);
+    else{$('#session-loading').hidden=true;$('#login-screen').hidden=false}
+  }catch(error){console.error('Falha ao restaurar sessão:',error);showSessionRetry('A conexão falhou. Confira a internet e tente novamente.')}
+  finally{button.disabled=false}
+};
 async function start(){
-  if(!window.supabase||!cfg?.url||!cfg?.publishableKey){setLoginMessage('Não consegui carregar a conexão do Supabase. Atualize a página ou confira a configuração.');return}
-  db=window.supabase.createClient(cfg.url,cfg.publishableKey);
-  if(passwordRecoveryMode)setLoginView('recovery');
+  if(!window.supabase||!cfg?.url||!cfg?.publishableKey){$('#session-loading').hidden=true;$('#login-screen').hidden=false;setLoginMessage('Não consegui carregar a conexão do Supabase. Atualize a página ou confira a configuração.');return}
+  db=window.supabase.createClient(cfg.url,cfg.publishableKey,{auth:{persistSession:true,autoRefreshToken:true}});
+  if(passwordRecoveryMode){$('#session-loading').hidden=true;$('#login-screen').hidden=false;setLoginView('recovery')}
   db.auth.onAuthStateChange((event,session)=>{
-    if(event==='PASSWORD_RECOVERY'){passwordRecoveryMode=true;setLoginView('recovery');return}
+    if(event==='PASSWORD_RECOVERY'){passwordRecoveryMode=true;$('#session-loading').hidden=true;$('#login-screen').hidden=false;setLoginView('recovery');return}
     if(passwordRecoveryMode)return;
-    if((event==='INITIAL_SESSION'||event==='SIGNED_IN')&&session?.user)void enterApp(session.user);
+    if((event==='INITIAL_SESSION'||event==='SIGNED_IN'||event==='TOKEN_REFRESHED')&&session?.user){
+      const loadId=authLoadId;
+      setTimeout(()=>{if(!passwordRecoveryMode&&loadId===authLoadId)void enterApp(session.user)},0);
+    }
     else if(event==='SIGNED_OUT')leaveApp();
   });
+  try{
+    const {data,error}=await db.auth.getSession();
+    if(passwordRecoveryMode)return;
+    if(data?.session?.user)await enterApp(data.session.user);
+    else if(!user){if(error)showSessionRetry('A conexão falhou. Confira a internet e tente novamente.');else{$('#session-loading').hidden=true;$('#login-screen').hidden=false}}
+  }catch(error){console.error('Falha ao restaurar sessão:',error);if(!user)showSessionRetry('A conexão falhou. Confira a internet e tente novamente.')}
 }
-async function enterApp(authUser){if(user?.id===authUser.id)return;const loadId=++authLoadId;user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',authUser.id).maybeSingle();if(loadId!==authLoadId)return;if(error||!p){leaveApp();setLoginMessage('Perfil não encontrado. Execute schema.sql e confirme seu perfil no Supabase.');return}profile=p;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-tools').hidden=p.role!=='admin';$('#open-assign-engineer').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'&&loadId===authLoadId)await loadSubmissions() }
-function leaveApp(){authLoadId++;projectLoadId++;if($('#update-review-dialog').open)$('#update-review-dialog').close();user=null;profile=null;projects=[];tasks=[];selectedProject=null;latestUpdateProjectId=null;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
+async function enterApp(authUser){if(user?.id===authUser.id)return;const loadId=++authLoadId;user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',authUser.id).maybeSingle();if(loadId!==authLoadId)return;if(error){user=null;profile=null;projects=[];tasks=[];selectedProject=null;showSessionRetry('Não foi possível carregar os dados da conta. Confira a internet e tente novamente.');return}if(!p){leaveApp();setLoginMessage('Perfil não encontrado. Confirme seu cadastro no Supabase.');return}profile=p;$('#session-loading').hidden=true;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-notification-setup').hidden=p.role!=='admin';$('#push-shortcut').hidden=true;$('#admin-tools').hidden=p.role!=='admin';$('#open-assign-engineer').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'&&loadId===authLoadId){await loadSubmissions();void refreshPushStatus()} }
+function leaveApp(){authLoadId++;projectLoadId++;if($('#update-review-dialog').open)$('#update-review-dialog').close();user=null;profile=null;projects=[];tasks=[];selectedProject=null;latestUpdateProjectId=null;showProjectLogo(null);$('#session-loading').hidden=true;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
+function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
+function vapidKeyBytes(value){const base64=value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(base64),char=>char.charCodeAt(0))}
+async function refreshPushStatus(){
+  if(profile?.role!=='admin')return;
+  const accountId=profile.id,button=$('#push-button'),status=$('#push-status'),shortcut=$('#push-shortcut');
+  shortcut.hidden=true;
+  if(!pushSupported()){button.disabled=true;button.textContent='Notificações indisponíveis';status.textContent='Este navegador não oferece notificações para o aplicativo.';return}
+  if(Notification.permission==='denied'){button.disabled=true;button.textContent='Notificações bloqueadas';status.textContent='Libere as notificações nas configurações do celular e abra o aplicativo novamente.';return}
+  button.disabled=true;button.textContent='Verificando notificações…';
+  try{
+    const registration=await navigator.serviceWorker.ready;
+    const subscription=await registration.pushManager.getSubscription();
+    if(profile?.id!==accountId)return;
+    let enabled=false;
+    if(subscription){
+      const {data,error}=await db.from('push_subscriptions').select('id').eq('user_id',accountId).eq('endpoint',subscription.endpoint).maybeSingle();
+      if(error)throw error;
+      enabled=!!data;
+    }
+    if(profile?.id!==accountId)return;
+    button.dataset.enabled=String(enabled);
+    button.textContent=enabled?'Desativar notificações':'Ativar notificações';
+    status.textContent=enabled?'Este celular receberá avisos quando um engenheiro atualizar uma obra.':'Ative e permita os avisos quando o celular solicitar.';
+    button.disabled=false;
+    shortcut.hidden=enabled;
+  }catch(error){console.error('Falha ao verificar notificações:',error);button.textContent='Tentar novamente';status.textContent='Não foi possível verificar as notificações agora.';button.disabled=false}
+}
+async function removePushSubscription(){
+  if(!pushSupported()||!db||!user)return;
+  try{
+    const registration=await navigator.serviceWorker.ready;
+    const subscription=await registration.pushManager.getSubscription();
+    if(!subscription)return;
+    const {error}=await db.from('push_subscriptions').delete().eq('user_id',user.id).eq('endpoint',subscription.endpoint);
+    const unsubscribed=await subscription.unsubscribe();
+    if(error||!unsubscribed)throw error||Error('Não foi possível cancelar a inscrição neste aparelho.');
+  }catch(error){console.error('Falha ao desativar notificações:',error);throw error}
+}
+async function configurePush(){
+  const button=$('#push-button'),status=$('#push-status'),shortcut=$('#push-shortcut');
+  if(button.disabled||profile?.role!=='admin')return;
+  button.disabled=true;
+  shortcut.hidden=true;
+  try{
+    if(button.dataset.enabled==='true'){
+      await removePushSubscription();
+      notify('Notificações desativadas neste celular.');
+    }else{
+      const permission=await Notification.requestPermission();
+      if(permission!=='granted'){status.textContent='Permissão negada. Libere as notificações nas configurações do celular.';return}
+      const registration=await navigator.serviceWorker.ready;
+      const subscription=await registration.pushManager.getSubscription()||await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(VAPID_PUBLIC_KEY)});
+      const keys=subscription.toJSON().keys;
+      if(!keys?.p256dh||!keys?.auth)throw Error('Chaves de inscrição ausentes.');
+      const {error}=await db.from('push_subscriptions').upsert({user_id:user.id,endpoint:subscription.endpoint,p256dh:keys.p256dh,auth_key:keys.auth},{onConflict:'endpoint'});
+      if(error)throw error;
+      notify('Notificações ativadas neste celular.');
+    }
+  }catch(error){console.error('Falha ao configurar notificações:',error);status.textContent='Não foi possível configurar as notificações. Tente novamente.'}
+  finally{if(profile?.role==='admin')await refreshPushStatus()}
+}
+$('#push-button').onclick=configurePush;
+$('#push-shortcut').onclick=configurePush;
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&profile?.role==='admin')void refreshPushStatus()});
 $('#login-form').addEventListener('submit',async e=>{
   e.preventDefault();
   if(!db){setLoginMessage('A conexão de autenticação não foi inicializada. Atualize a página e tente novamente.');return}
@@ -103,10 +189,10 @@ $('#password-recovery-form').addEventListener('submit',async e=>{
   const {error}=await db.auth.updateUser({password});
   button.disabled=false;
   if(error){setRecoveryMessage('Não foi possível atualizar a senha. Solicite um novo link e tente novamente.');return}
-  passwordRecoveryMode=false;await db.auth.signOut();$('#new-password').value='';$('#confirm-password').value='';
+  passwordRecoveryMode=false;history.replaceState(null,'',location.pathname+location.search);await db.auth.signOut({scope:'local'});$('#new-password').value='';$('#confirm-password').value='';
   setLoginView('login');setLoginMessage('Senha definida com sucesso. Entre com sua nova senha.',false);
 });
-$('#logout-button').onclick=async()=>{await db.auth.signOut();notify('Você saiu do app.')};
+$('#logout-button').onclick=async()=>{let pushCleanupFailed=false;if(profile?.role==='admin'){try{await removePushSubscription()}catch{pushCleanupFailed=true}}await db.auth.signOut({scope:'local'});notify(pushCleanupFailed?'Você saiu, mas não foi possível desativar os avisos neste celular.':'Você saiu do app.')};
 
 function updateEngineerRowButtons(){
   const rows=[...$('#engineer-registration-rows').querySelectorAll('.engineer-registration-row')];
@@ -165,7 +251,7 @@ $('#project-registration-form').addEventListener('submit',async event=>{
 
 async function loadProjects(preferredId){
   const loadId=authLoadId;
-  const {data,error}=await db.from('projects').select('id,name,source_file,created_at').order('name');
+  const {data,error}=await db.from('projects').select('id,name,logo_file,source_file,created_at').order('name');
   if(loadId!==authLoadId)return;
   if(error){notify('Não consegui carregar as obras. '+error.message);return}
   const allProjects=data||[];
@@ -174,14 +260,31 @@ async function loadProjects(preferredId){
   select.innerHTML='<option value="">Selecione uma obra</option>'+projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
   const importSelect=$('#import-project-select');
   if(importSelect)importSelect.innerHTML='<option value="">Selecione uma obra</option>'+projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
-  const requestedId=preferredId||selectedProject;
+  const requestedId=preferredId||notificationProjectId||selectedProject;
+  notificationProjectId=null;
   const requested=allProjects.find(p=>p.id===requestedId);
   const canonical=requested&&projects.find(p=>projectNameKey(p.name)===projectNameKey(requested.name));
   const wanted=canonical?.id||projects[0]?.id||'';
-  if(wanted){select.value=wanted;await loadProject(wanted)}else{selectedProject=null;tasks=[];render()}
+  if(wanted){select.value=wanted;await loadProject(wanted)}else{selectedProject=null;tasks=[];showProjectLogo(null);render()}
   $('#open-assign-engineer').disabled=!projects.length;
 }
 $('#project-select').onchange=()=>loadProject($('#project-select').value);
+async function showProjectLogo(project){
+  const requestId=++logoLoadId,slot=$('#project-logo-slot'),image=$('#project-logo');
+  slot.hidden=true;
+  image.removeAttribute('src');
+  image.alt='';
+  if(!project?.logo_file||!db)return;
+  try{
+    const {data,error}=await db.storage.from('client-logos').createSignedUrl(project.logo_file,3600);
+    if(requestId!==logoLoadId||selectedProject!==project.id)return;
+    if(error||!data?.signedUrl)throw error||Error('URL da logo indisponível.');
+    image.alt='Logo do projeto '+project.name;
+    image.onerror=()=>{if(requestId===logoLoadId)slot.hidden=true};
+    image.src=data.signedUrl;
+    slot.hidden=false;
+  }catch(error){if(requestId===logoLoadId)console.warn('Não foi possível carregar a logo do projeto:',error)}
+}
 function scheduleDateText(value){
   if(value instanceof Date&&!Number.isNaN(value.getTime()))return value.toLocaleDateString('pt-BR',{timeZone:'UTC'});
   const text=String(value??'').trim(),iso=text.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
@@ -247,7 +350,8 @@ async function loadProject(projectId){
   selectedProject=projectId;
   latestUpdateProjectId=null;
   const project=projects.find(p=>p.id===projectId);
-  if(!project){tasks=[];plannedFinishDate='';populateDimensionFilters();$('#export-button').disabled=true;$('#send-update').disabled=true;$('#open-assign-engineer').disabled=true;render();return}
+  if(!project){showProjectLogo(null);tasks=[];plannedFinishDate='';populateDimensionFilters();$('#export-button').disabled=true;$('#send-update').disabled=true;$('#open-assign-engineer').disabled=true;render();return}
+  void showProjectLogo(project);
   $('#open-assign-engineer').disabled=false;
   $('#project-name').innerHTML=`<span class="dot"></span> ${esc(project.name)} <small>• ${project.source_file?'cronograma carregado':'obra'}</small>`;
   $('#export-button').disabled=true;
@@ -532,6 +636,58 @@ $('#engineer-assignment-form').addEventListener('submit',async event=>{
 });
 
 async function loadSubmissions(){const {data:s,error}=await db.from('submissions').select('id,project_id,submitted_by,submitted_at').order('submitted_at',{ascending:false}).limit(20);if(error){$('#submission-list').textContent=error.message;return}if(!s?.length){$('#submission-list').textContent='Nenhuma atualização recebida ainda.';return}const projectIds=[...new Set(s.map(x=>x.project_id))],userIds=[...new Set(s.map(x=>x.submitted_by))];const [{data:p},{data:u}]=await Promise.all([db.from('projects').select('id,name').in('id',projectIds),db.from('profiles').select('id,email,display_name').in('id',userIds)]);const pm=new Map((p||[]).map(x=>[x.id,x.name])),um=new Map((u||[]).map(x=>[x.id,x.display_name||x.email]));$('#submission-list').innerHTML=s.map(x=>`<div class="submission-row"><span><b>${esc(pm.get(x.project_id)||'Obra')}</b><br><small>${esc(um.get(x.submitted_by)||'Engenheiro')}</small></span><small>${new Date(x.submitted_at).toLocaleString('pt-BR')}</small></div>`).join('')}
-$('#export-button').onclick=async()=>{if(!selectedProject)return notify('Selecione uma obra para exportar.');if(latestUpdateProjectId!==selectedProject)return notify('Aguarde uma atualização do engenheiro desta obra para baixar o Excel atualizado.');const project=projects.find(p=>p.id===selectedProject);if(!project)return;if(!project.source_file)return notify('Este projeto ainda não tem cronograma para exportar.');const path=`${project.id}/${project.source_file}`;const {data:file,error}=await db.storage.from('schedule-files').download(path);if(error)return notify('Falha ao baixar o original. '+error.message);try{const XLSX=await loadXlsx();const wb=XLSX.read(await file.arrayBuffer(),{type:'array',raw:false,cellDates:true});for(const t of tasks){if(t.summary||t.sourceActualColumn===null||t.sourceActualColumn===undefined)continue;const ws=wb.Sheets[t.sourceSheet];if(!ws)continue;const addr=XLSX.utils.encode_cell({r:t.sourceRow,c:t.sourceActualColumn});const cell=ws[addr]||{};const fraction=(String(cell.z||'').includes('%')||(typeof cell.v==='number'&&cell.v>=0&&cell.v<=1));ws[addr]={...cell,t:'n',v:fraction?t.actual/100:t.actual}}XLSX.writeFile(wb,`${project.name.replace(/[\\/:*?"<>|]/g,'_')}_atualizado.xlsx`);notify('Excel atualizado baixado.')}catch(e){notify('Falha ao gerar o Excel. '+e.message)}};
+function updateExportWorkbook(XLSX,workbook,scheduleTasks){
+  const tasksBySheet=new Map();
+  for(const task of scheduleTasks){
+    const row=Number(task.sourceRow),column=Number(task.sourceActualColumn),value=Number(task.originalActual);
+    const sheet=workbook.Sheets[task.sourceSheet];
+    if(!sheet||task.sourceRow==null||task.sourceActualColumn==null||!Number.isInteger(row)||!Number.isInteger(column)||row<0||column<0)throw Error('Uma atividade não tem posição válida no cronograma original.');
+    if(!Number.isFinite(value))throw Error('Uma atividade tem percentual inválido para exportação.');
+    const address=XLSX.utils.encode_cell({r:row,c:column}),original=sheet[address];
+    sheet[address]={t:'n',v:value/100,z:'0%'};
+    if(original?.s!==undefined)sheet[address].s=original.s;
+    if(!tasksBySheet.has(task.sourceSheet))tasksBySheet.set(task.sourceSheet,[]);
+    tasksBySheet.get(task.sourceSheet).push(task);
+  }
+  for(const [sheetName,sheetTasks] of tasksBySheet){
+    const sheet=workbook.Sheets[sheetName],range=XLSX.utils.decode_range(sheet['!ref']);
+    const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:false});
+    const headerIndex=headerRow(rows);
+    if(headerIndex<0)throw Error('Não encontrei o cabeçalho das atividades na aba '+sheetName+'.');
+    const headerRowIndex=range.s.r+headerIndex;
+    let alteredColumn=-1;
+    for(let column=range.s.c;column<=range.e.c;column++){
+      if(key(sheet[XLSX.utils.encode_cell({r:headerRowIndex,c:column})]?.v)==='alterada'){alteredColumn=column;break}
+    }
+    if(alteredColumn<0)alteredColumn=++range.e.c;
+    const headerAddress=XLSX.utils.encode_cell({r:headerRowIndex,c:alteredColumn});
+    const adjacentHeader=sheet[XLSX.utils.encode_cell({r:headerRowIndex,c:alteredColumn-1})];
+    sheet[headerAddress]={t:'s',v:'Alterada'};
+    if(adjacentHeader?.s!==undefined)sheet[headerAddress].s=adjacentHeader.s;
+    for(const task of sheetTasks){
+      const row=Number(task.sourceRow),address=XLSX.utils.encode_cell({r:row,c:alteredColumn});
+      sheet[address]={t:'s',v:submittedChange(task)?'sim':'não'};
+      range.e.r=Math.max(range.e.r,row);
+    }
+    sheet['!ref']=XLSX.utils.encode_range(range);
+  }
+}
+$('#export-button').onclick=async()=>{
+  if(!selectedProject)return notify('Selecione uma obra para exportar.');
+  if(latestUpdateProjectId!==selectedProject)return notify('Aguarde uma atualização do engenheiro desta obra para baixar o Excel atualizado.');
+  const project=projects.find(p=>p.id===selectedProject);
+  if(!project)return;
+  if(!project.source_file)return notify('Este projeto ainda não tem cronograma para exportar.');
+  const exportTasks=tasks.slice();
+  const path=`${project.id}/${project.source_file}`;
+  const {data:file,error}=await db.storage.from('schedule-files').download(path);
+  if(error)return notify('Falha ao baixar o original. '+error.message);
+  try{
+    const XLSX=await loadXlsx(),workbook=XLSX.read(await file.arrayBuffer(),{type:'array',raw:false,cellDates:true});
+    updateExportWorkbook(XLSX,workbook,exportTasks);
+    XLSX.writeFile(workbook,`${project.name.replace(/[\\/:*?"<>|]/g,'_')}_atualizado.xlsx`);
+    notify('Excel atualizado baixado.');
+  }catch(error){notify('Falha ao gerar o Excel. '+error.message)}
+};
 window.addEventListener('focus',()=>{if(profile?.role==='admin')loadSubmissions()});setInterval(()=>{if(profile?.role==='admin')loadSubmissions()},60000);
 render();start();
