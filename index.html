@@ -10,7 +10,7 @@
     <title>Obra em Dia — Controle de Cronograma</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css?v=admin-push-20261014" />
+    <link rel="stylesheet" href="styles.css?v=push-access-20261014" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
     <script src="supabase/config.js" defer></script>
   </head>
@@ -44,6 +44,13 @@
       </form>
     </section>
     <main id="app-main" hidden>
+      <section id="admin-notification-setup" class="admin-tool admin-notification-setup" hidden>
+        <h2>Notificações no celular</h2>
+        <p>Receba um aviso quando um engenheiro enviar a atualização de uma obra.</p>
+        <button id="push-button" class="button primary" type="button">Verificando notificações…</button>
+        <p id="push-status" role="status" aria-live="polite"></p>
+      </section>
+      <button id="push-shortcut" class="button primary push-shortcut" type="button" hidden>Ativar notificações</button>
       <section class="hero">
         <div>
           <p class="eyebrow">CONTROLE DE AVANÇO FÍSICO</p>
@@ -66,12 +73,6 @@
           <h2>Importar ou atualizar cronograma</h2><p>Selecione a obra acima. O novo cronograma substituirá o anterior e reiniciará os percentuais enviados anteriormente.</p>
           <label for="schedule-file">Cronograma Excel ou CSV</label><input id="schedule-file" type="file" accept=".xlsx,.xls,.csv" />
           <button id="import-button" class="button primary">Importar/atualizar cronograma</button>
-        </div>
-        <div class="admin-tool admin-notifications">
-          <h2>Notificações no celular</h2>
-          <p>Receba um aviso quando um engenheiro enviar a atualização de uma obra.</p>
-          <button id="push-button" class="button secondary" type="button">Verificando notificações…</button>
-          <p id="push-status" role="status" aria-live="polite"></p>
         </div>
       </section>
       <section id="admin-submissions" class="admin-submissions" hidden><h2>Atualizações recebidas</h2><div id="submission-list"></div></section>      <section class="metrics" aria-label="Resumo do cronograma">
@@ -169,7 +170,7 @@
       </form>
     </dialog>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=session-20261014" defer></script>
+    <script src="app.js?v=push-access-20261014" defer></script>
     <script>
       if ('serviceWorker' in navigator) {
         let refreshingAfterWorkerUpdate = false;

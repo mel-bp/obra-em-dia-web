@@ -88,13 +88,14 @@ async function start(){
     else if(!user){if(error)showSessionRetry('A conexão falhou. Confira a internet e tente novamente.');else{$('#session-loading').hidden=true;$('#login-screen').hidden=false}}
   }catch(error){console.error('Falha ao restaurar sessão:',error);if(!user)showSessionRetry('A conexão falhou. Confira a internet e tente novamente.')}
 }
-async function enterApp(authUser){if(user?.id===authUser.id)return;const loadId=++authLoadId;user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',authUser.id).maybeSingle();if(loadId!==authLoadId)return;if(error){user=null;profile=null;projects=[];tasks=[];selectedProject=null;showSessionRetry('Não foi possível carregar os dados da conta. Confira a internet e tente novamente.');return}if(!p){leaveApp();setLoginMessage('Perfil não encontrado. Confirme seu cadastro no Supabase.');return}profile=p;$('#session-loading').hidden=true;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-tools').hidden=p.role!=='admin';$('#open-assign-engineer').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'&&loadId===authLoadId){await loadSubmissions();void refreshPushStatus()} }
+async function enterApp(authUser){if(user?.id===authUser.id)return;const loadId=++authLoadId;user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',authUser.id).maybeSingle();if(loadId!==authLoadId)return;if(error){user=null;profile=null;projects=[];tasks=[];selectedProject=null;showSessionRetry('Não foi possível carregar os dados da conta. Confira a internet e tente novamente.');return}if(!p){leaveApp();setLoginMessage('Perfil não encontrado. Confirme seu cadastro no Supabase.');return}profile=p;$('#session-loading').hidden=true;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-notification-setup').hidden=p.role!=='admin';$('#push-shortcut').hidden=true;$('#admin-tools').hidden=p.role!=='admin';$('#open-assign-engineer').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'&&loadId===authLoadId){await loadSubmissions();void refreshPushStatus()} }
 function leaveApp(){authLoadId++;projectLoadId++;if($('#update-review-dialog').open)$('#update-review-dialog').close();user=null;profile=null;projects=[];tasks=[];selectedProject=null;latestUpdateProjectId=null;$('#session-loading').hidden=true;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
 function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
 function vapidKeyBytes(value){const base64=value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(base64),char=>char.charCodeAt(0))}
 async function refreshPushStatus(){
   if(profile?.role!=='admin')return;
-  const accountId=profile.id,button=$('#push-button'),status=$('#push-status');
+  const accountId=profile.id,button=$('#push-button'),status=$('#push-status'),shortcut=$('#push-shortcut');
+  shortcut.hidden=true;
   if(!pushSupported()){button.disabled=true;button.textContent='Notificações indisponíveis';status.textContent='Este navegador não oferece notificações para o aplicativo.';return}
   if(Notification.permission==='denied'){button.disabled=true;button.textContent='Notificações bloqueadas';status.textContent='Libere as notificações nas configurações do celular e abra o aplicativo novamente.';return}
   button.disabled=true;button.textContent='Verificando notificações…';
@@ -113,6 +114,7 @@ async function refreshPushStatus(){
     button.textContent=enabled?'Desativar notificações':'Ativar notificações';
     status.textContent=enabled?'Este celular receberá avisos quando um engenheiro atualizar uma obra.':'Ative e permita os avisos quando o celular solicitar.';
     button.disabled=false;
+    shortcut.hidden=enabled;
   }catch(error){console.error('Falha ao verificar notificações:',error);button.textContent='Tentar novamente';status.textContent='Não foi possível verificar as notificações agora.';button.disabled=false}
 }
 async function removePushSubscription(){
@@ -126,10 +128,11 @@ async function removePushSubscription(){
     if(error||!unsubscribed)throw error||Error('Não foi possível cancelar a inscrição neste aparelho.');
   }catch(error){console.error('Falha ao desativar notificações:',error);throw error}
 }
-$('#push-button').onclick=async()=>{
-  const button=$('#push-button'),status=$('#push-status');
+async function configurePush(){
+  const button=$('#push-button'),status=$('#push-status'),shortcut=$('#push-shortcut');
   if(button.disabled||profile?.role!=='admin')return;
   button.disabled=true;
+  shortcut.hidden=true;
   try{
     if(button.dataset.enabled==='true'){
       await removePushSubscription();
@@ -147,7 +150,9 @@ $('#push-button').onclick=async()=>{
     }
   }catch(error){console.error('Falha ao configurar notificações:',error);status.textContent='Não foi possível configurar as notificações. Tente novamente.'}
   finally{if(profile?.role==='admin')await refreshPushStatus()}
-};
+}
+$('#push-button').onclick=configurePush;
+$('#push-shortcut').onclick=configurePush;
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&profile?.role==='admin')void refreshPushStatus()});
 $('#login-form').addEventListener('submit',async e=>{
   e.preventDefault();
