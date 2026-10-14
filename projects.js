@@ -1,6 +1,6 @@
 const cfg=window.OBRA_SUPABASE;
 const $=selector=>document.querySelector(selector);
-let db=null,adminProfile=null,projects=[],members=[],profiles=new Map(),projectForEngineerDialog=null;
+let db=null,adminProfile=null,projects=[],members=[],admins=[],responsibilities=[],profiles=new Map(),projectForEngineerDialog=null;
 const LOGO_BUCKET='client-logos',LOGO_MAX_BYTES=5*1024*1024;
 const LOGO_EXTENSIONS={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'};
 const pendingLogoPreviews=new Map();
@@ -10,21 +10,27 @@ function notify(message){const toast=$('#toast');toast.textContent=message;toast
 function showPageMessage(message,isError=false){const target=$('#projects-message');target.textContent=message;target.classList.toggle('error',isError)}
 function personName(person,fallback){return person?.display_name||person?.email||fallback||'Nome não informado'}
 function membersFor(projectId){return members.filter(member=>member.project_id===projectId)}
+function adminIdsFor(projectId){return responsibilities.filter(item=>item.project_id===projectId).map(item=>item.user_id)}
 function clearPendingLogoPreview(projectId){const url=pendingLogoPreviews.get(projectId);if(url)URL.revokeObjectURL(url);pendingLogoPreviews.delete(projectId)}
 function renderProjects(){
   for(const projectId of pendingLogoPreviews.keys())clearPendingLogoPreview(projectId);
   const list=$('#project-list');
-  if(!projects.length){list.innerHTML='<div class="projects-empty">Nenhum projeto cadastrado.</div>';return}
+  if(!projects.length){list.innerHTML='<div class="projects-empty">Nenhum projeto sob sua responsabilidade. Cadastre uma obra para começar ou peça que um responsável adicione seu e-mail.</div>';return}
   list.innerHTML=projects.map(project=>{
     const projectMembers=membersFor(project.id),creator=profiles.get(project.created_by),creatorLabel=personName(creator,'Administrador não identificado');
+    const responsibleIds=adminIdsFor(project.id);
+    const responsibleNames=responsibleIds.map(id=>profiles.get(id)?.email||'Administrador não identificado').join(', ');
+    const adminChoices=admins.map(person=>'<label class="project-member-choice"><input type="checkbox" data-admin-selection value="'+esc(person.id)+'"'+(responsibleIds.includes(person.id)?' checked':'')+'><span>'+esc(person.email)+'</span></label>').join('');
     const memberNames=projectMembers.map(member=>{const person=profiles.get(member.user_id);return '<li>'+esc(personName(person,'Engenheiro não identificado'))+(person?.email&&person.email!==person.display_name?'<small>'+esc(person.email)+'</small>':'')+'</li>'}).join('')||'<li class="no-members">Nenhum engenheiro vinculado.</li>';
     const memberChoices=projectMembers.map(member=>{const person=profiles.get(member.user_id);return '<label class="project-member-choice"><input type="checkbox" data-member-selection value="'+esc(member.user_id)+'"><span>'+esc(personName(person,'Engenheiro não identificado'))+(person?.email?'<small>'+esc(person.email)+'</small>':'')+'</span></label>'}).join('')||'<p class="no-members">Este projeto ainda não tem engenheiros vinculados.</p>';
     return '<article class="project-card" data-project-card="'+esc(project.id)+'">'+
       '<div class="project-card-heading"><div><p class="eyebrow">PROJETO</p><h2>'+esc(project.name)+'</h2></div><div class="project-card-actions"><button class="button secondary" type="button" data-action="edit">Editar</button><button class="button danger" type="button" data-action="delete-project">Excluir projeto</button></div></div>'+
       '<p class="project-created-by">Cadastrado por <strong>'+esc(creatorLabel)+'</strong></p>'+
+      '<p class="project-responsible-summary">Administradores responsáveis: <strong>'+esc(responsibleNames)+'</strong></p>'+
       '<div class="project-engineers"><h3>Engenheiros vinculados</h3><ul class="project-engineer-list">'+memberNames+'</ul></div>'+
       '<section class="project-edit-panel" data-edit-panel hidden>'+
         '<label class="project-name-field">Nome do projeto<input class="project-name-input" type="text" maxlength="180" value="'+esc(project.name)+'"></label>'+
+        '<div class="project-admin-editor"><strong>Administradores responsáveis</strong><p>Selecione um ou mais e-mails. Apenas essas pessoas verão e administrarão este projeto.</p><div class="project-admin-choices">'+adminChoices+'</div></div>'+
         '<div class="project-logo-editor"><strong>Logo do projeto (opcional)</strong><div class="project-logo-preview-box"><img class="project-logo-preview" alt="Logo do projeto '+esc(project.name)+'" hidden><span class="project-logo-placeholder">'+(project.logo_file?'Carregando logo…':'Nenhuma logo cadastrada')+'</span></div><div class="project-logo-actions"><input class="project-logo-input" type="file" accept="image/png,image/jpeg,image/webp" hidden><button class="button secondary" type="button" data-action="choose-logo">Carregar logo</button><button class="button secondary project-logo-remove" type="button" data-action="remove-logo"'+(project.logo_file?'':' hidden')+'>Remover logo</button></div><small>PNG, JPG ou WebP, até 5 MB.</small></div>'+
         '<div class="project-edit-actions"><button class="button primary" type="button" data-action="save-project">Salvar alterações</button><button class="button secondary" type="button" data-action="cancel-edit">Cancelar edição</button></div>'+
         '<div class="project-member-management"><h3>Desligar engenheiros deste projeto</h3><p>Selecione uma ou mais pessoas. A conta delas continuará ativa e o acesso aos outros projetos será mantido.</p><div class="project-member-choices">'+memberChoices+'</div><button class="button secondary" type="button" data-action="remove-members"'+(projectMembers.length?'':' disabled')+'>Desligar selecionados</button></div>'+
@@ -39,8 +45,14 @@ async function loadProjects(){
   const {data:projectRows,error:projectError}=await db.from('projects').select('id,name,logo_file,created_by,created_at').order('name');
   if(projectError){showPageMessage('Não foi possível carregar os projetos: '+projectError.message,true);return}
   projects=projectRows||[];
+  const {data:adminRows,error:adminError}=await db.from('profiles').select('id,email,display_name').eq('role','admin').order('email');
+  if(adminError){showPageMessage('Não foi possível carregar os administradores: '+adminError.message,true);return}
+  admins=adminRows||[];
   const projectIds=projects.map(project=>project.id);
-  if(!projectIds.length){members=[];profiles=new Map();renderProjects();return}
+  if(!projectIds.length){members=[];responsibilities=[];profiles=new Map(admins.map(person=>[person.id,person]));renderProjects();return}
+  const {data:responsibleRows,error:responsibleError}=await db.from('project_admins').select('project_id,user_id').in('project_id',projectIds);
+  if(responsibleError){showPageMessage('Não foi possível carregar os responsáveis: '+responsibleError.message,true);return}
+  responsibilities=responsibleRows||[];
   const {data:memberRows,error:memberError}=await db.from('project_members').select('project_id,user_id').in('project_id',projectIds);
   if(memberError){showPageMessage('Não foi possível carregar os engenheiros dos projetos: '+memberError.message,true);return}
   members=memberRows||[];
@@ -48,8 +60,8 @@ async function loadProjects(){
   if(profileIds.length){
     const {data:profileRows,error:profileError}=await db.from('profiles').select('id,email,display_name').in('id',profileIds);
     if(profileError){showPageMessage('Não foi possível carregar os nomes dos responsáveis: '+profileError.message,true);return}
-    profiles=new Map((profileRows||[]).map(person=>[person.id,person]));
-  }else profiles=new Map();
+    profiles=new Map([...admins,...(profileRows||[])].map(person=>[person.id,person]));
+  }else profiles=new Map(admins.map(person=>[person.id,person]));
   renderProjects();
 }
 async function askForConfirmation(title,copy,confirmLabel){
@@ -88,6 +100,7 @@ function resetProjectEdit(project,card){
   clearPendingLogoPreview(project.id);
   card.querySelector('.project-logo-input').value='';
   card.querySelector('.project-name-input').value=project.name;
+  card.querySelectorAll('[data-admin-selection]').forEach(input=>{input.checked=adminIdsFor(project.id).includes(input.value)});
   card.dataset.removeLogo='false';
   card.querySelector('.project-logo-remove').hidden=!project.logo_file;
   card.querySelector('[data-edit-panel]').hidden=true;
@@ -98,7 +111,11 @@ async function saveProject(project,card,button){
   if(projects.some(item=>item.id!==project.id&&normalizeName(item.name)===normalizeName(name))){showPageMessage('Já existe um projeto com esse nome.',true);return}
   const file=card.querySelector('.project-logo-input').files[0],removeLogo=card.dataset.removeLogo==='true';
   if(file&&(!LOGO_EXTENSIONS[file.type]||!file.size||file.size>LOGO_MAX_BYTES)){showPageMessage('Escolha uma imagem PNG, JPG ou WebP de até 5 MB.',true);return}
-  if(name===project.name&&!file&&!removeLogo){resetProjectEdit(project,card);return}
+  const adminIds=[...card.querySelectorAll('[data-admin-selection]:checked')].map(input=>input.value);
+  if(!adminIds.length){showPageMessage('Selecione pelo menos um administrador responsável.',true);return}
+  const currentAdminIds=adminIdsFor(project.id);
+  const adminsChanged=adminIds.length!==currentAdminIds.length||adminIds.some(id=>!currentAdminIds.includes(id));
+  if(name===project.name&&!file&&!removeLogo&&!adminsChanged){resetProjectEdit(project,card);return}
   button.disabled=true;
   let newPath=null,projectSaved=false;
   try{
@@ -107,23 +124,29 @@ async function saveProject(project,card,button){
       const {error}=await db.storage.from(LOGO_BUCKET).upload(newPath,file,{contentType:file.type,upsert:false});
       if(error)throw error;
     }
-    const changes={name};
-    if(file)changes.logo_file=newPath;
-    else if(removeLogo)changes.logo_file=null;
-    const {data,error}=await db.from('projects').update(changes).eq('id',project.id).select('id').maybeSingle();
-    if(error||!data)throw error||Error('Projeto não encontrado.');
-    projectSaved=true;
+    if(name!==project.name||file||removeLogo){
+      const changes={name};
+      if(file)changes.logo_file=newPath;
+      else if(removeLogo)changes.logo_file=null;
+      const {data,error}=await db.from('projects').update(changes).eq('id',project.id).select('id').maybeSingle();
+      if(error||!data)throw error||Error('Projeto não encontrado.');
+      projectSaved=true;
+    }
     let cleanupError=null;
     if(project.logo_file&&(file||removeLogo)){
       const {error:removeError}=await db.storage.from(LOGO_BUCKET).remove([project.logo_file]);
       cleanupError=removeError;
+    }
+    if(adminsChanged){
+      const {error}=await db.rpc('set_project_admins',{p_project_id:project.id,p_user_ids:adminIds});
+      if(error)throw error;
     }
     await loadProjects();
     if(cleanupError)showPageMessage('Projeto salvo, mas não foi possível apagar o arquivo da logo anterior.',true);
     else notify('Projeto atualizado.');
   }catch(error){
     if(newPath&&!projectSaved)await db.storage.from(LOGO_BUCKET).remove([newPath]);
-    showPageMessage((projectSaved?'Projeto salvo, mas não foi possível atualizar a lista: ':'Não foi possível salvar o projeto: ')+error.message,true);
+    showPageMessage((projectSaved?'Nome ou logo salvos, mas não foi possível concluir os responsáveis: ':'Não foi possível salvar o projeto: ')+error.message,true);
   }finally{button.disabled=false}
 }
 async function removeProjectMembers(project,card,button){
@@ -163,19 +186,18 @@ async function deleteProject(project,button){
   button.disabled=true;
   try{
     const filePaths=await collectProjectFiles(project.id);
+    await removeProjectFiles(filePaths);
+    if(project.logo_file){
+      const {error:logoError}=await db.storage.from(LOGO_BUCKET).remove([project.logo_file]);
+      if(logoError)throw Error('Não foi possível remover a logo do projeto: '+logoError.message);
+    }
     const {data,error}=await db.from('projects').delete().eq('id',project.id).select('id').maybeSingle();
     if(error)throw error;
     if(!data)throw Error('O projeto não foi encontrado ou não pôde ser excluído.');
     projects=projects.filter(item=>item.id!==project.id);
     members=members.filter(member=>member.project_id!==project.id);
     renderProjects();
-    const cleanupErrors=[];
-    try{await removeProjectFiles(filePaths)}catch(error){cleanupErrors.push(error.message)}
-    if(project.logo_file){
-      const {error}=await db.storage.from(LOGO_BUCKET).remove([project.logo_file]);
-      if(error)cleanupErrors.push(error.message);
-    }
-    notify(cleanupErrors.length?'Projeto excluído, mas alguns arquivos não puderam ser removidos.':'Projeto, dados associados e arquivos excluídos.');
+    notify('Projeto, dados associados e arquivos excluídos.');
   }catch(error){
     button.disabled=false;
     showPageMessage('Não foi possível excluir o projeto: '+error.message,true);

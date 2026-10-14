@@ -71,6 +71,12 @@
 .project-card-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .project-created-by{margin:11px 0 16px;color:var(--muted);font-size:12px}
 .project-created-by strong{color:var(--ink)}
+.project-responsible-summary{margin:-8px 0 16px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.project-responsible-summary strong{color:var(--ink)}
+.project-admin-editor{margin-top:18px}
+.project-admin-editor>strong{display:block;font-size:12px}
+.project-admin-editor p{margin:5px 0 10px;color:var(--muted);font-size:12px;line-height:1.45}
+.project-admin-choices{display:grid;gap:7px}
 .project-engineers h3,.project-member-management h3{font-size:14px;margin:0 0 8px}
 .project-engineer-list{display:flex;flex-wrap:wrap;gap:7px;list-style:none;margin:0;padding:0}
 .project-engineer-list li{display:flex;flex-direction:column;gap:2px;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-weight:650;font-size:12px}

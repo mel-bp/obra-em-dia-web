@@ -61,13 +61,25 @@ Deno.serve(async (request: Request) => {
     let project: { id: string; name: string; source_file: string | null; created_at: string } | null = null
     let created = false
     if (targetProjectId) {
+      const { data: responsible, error: responsibleError } = await admin.from('project_admins')
+        .select('project_id').eq('project_id', targetProjectId).eq('user_id', authData.user.id).maybeSingle()
+      if (responsibleError) throw responsibleError
+      if (!responsible) return json({ error: 'Você não é responsável por esta obra.' }, 403)
       const { data, error } = await admin.from('projects').select('id,name,source_file,created_at').eq('id', targetProjectId).maybeSingle()
       if (error) throw error
       if (!data) return json({ error: 'A obra selecionada não foi encontrada. Atualize a lista e tente novamente.' }, 404)
       project = data
     } else {
-      const { data: existingProjects, error: projectsError } = await admin.from('projects').select('id,name,source_file,created_at')
-      if (projectsError) throw projectsError
+      const { data: assignments, error: assignmentsError } = await admin.from('project_admins')
+        .select('project_id').eq('user_id', authData.user.id)
+      if (assignmentsError) throw assignmentsError
+      const ownProjectIds = (assignments || []).map(item => item.project_id)
+      let existingProjects: Array<{ id: string; name: string; source_file: string | null; created_at: string }> = []
+      if (ownProjectIds.length) {
+        const { data, error } = await admin.from('projects').select('id,name,source_file,created_at').in('id', ownProjectIds)
+        if (error) throw error
+        existingProjects = data || []
+      }
       const matching = (existingProjects || []).filter(item => normalizeName(item.name) === normalizeName(projectName))
         .sort((a, b) => Number(Boolean(b.source_file)) - Number(Boolean(a.source_file)) || (Date.parse(b.created_at || '') || 0) - (Date.parse(a.created_at || '') || 0))
       project = matching[0] || null

@@ -29,6 +29,12 @@ export default {
       if (projectError || !project) {
         return Response.json({ error: 'A obra não foi encontrada.' }, { status: 404 })
       }
+      const { data: responsible, error: responsibleError } = await ctx.supabaseAdmin
+        .from('project_admins').select('project_id')
+        .eq('project_id', projectId).eq('user_id', ctx.userClaims.sub).maybeSingle()
+      if (responsibleError || !responsible) {
+        return Response.json({ error: 'Você não é responsável por esta obra.' }, { status: 403 })
+      }
 
       let engineerId: string
       const { data: existing, error: existingError } = await ctx.supabaseAdmin

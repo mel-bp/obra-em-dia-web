@@ -265,7 +265,14 @@ async function loadProjects(preferredId){
   const requested=allProjects.find(p=>p.id===requestedId);
   const canonical=requested&&projects.find(p=>projectNameKey(p.name)===projectNameKey(requested.name));
   const wanted=canonical?.id||projects[0]?.id||'';
-  if(wanted){select.value=wanted;await loadProject(wanted)}else{selectedProject=null;tasks=[];showProjectLogo(null);render()}
+  if(wanted){select.value=wanted;await loadProject(wanted)}else{
+    ++projectLoadId;selectedProject=null;latestUpdateProjectId=null;tasks=[];plannedFinishDate='';
+    showProjectLogo(null);
+    $('#project-name').innerHTML='<span class="dot"></span> Nenhuma obra selecionada';
+    $('#table-help').textContent='Cadastre uma obra ou aguarde ser incluído como responsável.';
+    $('#export-button').disabled=true;$('#send-update').disabled=true;
+    populateDimensionFilters();render();
+  }
   $('#open-assign-engineer').disabled=!projects.length;
 }
 $('#project-select').onchange=()=>loadProject($('#project-select').value);

@@ -56,14 +56,16 @@ Deno.serve(async request => {
   if (claimError) return json({ error: 'Falha ao preparar a notificação.' }, 500)
   if (!claimed) return json({ duplicate: true })
 
-  const [{ data: subscriptions, error: subscriptionsError }, { data: admins, error: adminsError }] = await Promise.all([
+  const [{ data: subscriptions, error: subscriptionsError }, { data: admins, error: adminsError }, { data: responsibles, error: responsiblesError }] = await Promise.all([
     admin.from('push_subscriptions').select('id,user_id,endpoint,p256dh,auth_key'),
     admin.from('profiles').select('id').eq('role', 'admin'),
+    admin.from('project_admins').select('user_id').eq('project_id', submission.project_id),
   ])
-  if (subscriptionsError || adminsError) return json({ error: 'Falha ao consultar os celulares.' }, 500)
+  if (subscriptionsError || adminsError || responsiblesError) return json({ error: 'Falha ao consultar os celulares.' }, 500)
 
   const adminIds = new Set((admins || []).map(row => row.id))
-  const destinations = (subscriptions || []).filter(row => adminIds.has(row.user_id))
+  const responsibleIds = new Set((responsibles || []).map(row => row.user_id))
+  const destinations = (subscriptions || []).filter(row => adminIds.has(row.user_id) && responsibleIds.has(row.user_id))
   const name = engineer.display_name?.trim() || engineer.email || 'Um engenheiro'
   const payload = JSON.stringify({
     title: 'Obra em Dia',
