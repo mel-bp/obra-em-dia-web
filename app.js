@@ -1,5 +1,6 @@
 const cfg=window.OBRA_SUPABASE,body=document.querySelector('#schedule-body'),toast=document.querySelector('#toast');
-let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,latestUpdateProjectId=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite'),projectLoadId=0,authLoadId=0,xlsxPromise=null,pendingSubmission=null;
+let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,latestUpdateProjectId=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite'),projectLoadId=0,authLoadId=0,xlsxPromise=null,pendingSubmission=null,notificationProjectId=new URLSearchParams(location.search).get('project');
+const VAPID_PUBLIC_KEY='BBtoMj-PNwjcJaxWmYzToLm8nmAS61dqZorAnEL2ZhkMOQy4GV98M7BfHAiPrch4Y1Iuor50c8Ksy-rCZ09j5SU';
 const $=selector=>document.querySelector(selector),pendingChange=t=>!t.summary&&t.actual!==t.originalActual,submittedChange=t=>!t.summary&&t.originalActual!==t.initialActual,changed=t=>submittedChange(t)||pendingChange(t);
 const esc=v=>String(v??'').replace(/[&<>\'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 function notify(message){toast.textContent=message;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),4000)}
@@ -67,8 +68,67 @@ async function start(){
     else if(event==='SIGNED_OUT')leaveApp();
   });
 }
-async function enterApp(authUser){if(user?.id===authUser.id)return;const loadId=++authLoadId;user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',authUser.id).maybeSingle();if(loadId!==authLoadId)return;if(error||!p){leaveApp();setLoginMessage('Perfil não encontrado. Execute schema.sql e confirme seu perfil no Supabase.');return}profile=p;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-tools').hidden=p.role!=='admin';$('#open-assign-engineer').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'&&loadId===authLoadId)await loadSubmissions() }
+async function enterApp(authUser){if(user?.id===authUser.id)return;const loadId=++authLoadId;user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',authUser.id).maybeSingle();if(loadId!==authLoadId)return;if(error||!p){leaveApp();setLoginMessage('Perfil não encontrado. Execute schema.sql e confirme seu perfil no Supabase.');return}profile=p;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-tools').hidden=p.role!=='admin';$('#open-assign-engineer').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'&&loadId===authLoadId){await loadSubmissions();void refreshPushStatus()} }
 function leaveApp(){authLoadId++;projectLoadId++;if($('#update-review-dialog').open)$('#update-review-dialog').close();user=null;profile=null;projects=[];tasks=[];selectedProject=null;latestUpdateProjectId=null;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
+function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
+function vapidKeyBytes(value){const base64=value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(base64),char=>char.charCodeAt(0))}
+async function refreshPushStatus(){
+  if(profile?.role!=='admin')return;
+  const accountId=profile.id,button=$('#push-button'),status=$('#push-status');
+  if(!pushSupported()){button.disabled=true;button.textContent='Notificações indisponíveis';status.textContent='Este navegador não oferece notificações para o aplicativo.';return}
+  if(Notification.permission==='denied'){button.disabled=true;button.textContent='Notificações bloqueadas';status.textContent='Libere as notificações nas configurações do celular e abra o aplicativo novamente.';return}
+  button.disabled=true;button.textContent='Verificando notificações…';
+  try{
+    const registration=await navigator.serviceWorker.ready;
+    const subscription=await registration.pushManager.getSubscription();
+    if(profile?.id!==accountId)return;
+    let enabled=false;
+    if(subscription){
+      const {data,error}=await db.from('push_subscriptions').select('id').eq('user_id',accountId).eq('endpoint',subscription.endpoint).maybeSingle();
+      if(error)throw error;
+      enabled=!!data;
+    }
+    if(profile?.id!==accountId)return;
+    button.dataset.enabled=String(enabled);
+    button.textContent=enabled?'Desativar notificações':'Ativar notificações';
+    status.textContent=enabled?'Este celular receberá avisos quando um engenheiro atualizar uma obra.':'Ative e permita os avisos quando o celular solicitar.';
+    button.disabled=false;
+  }catch(error){console.error('Falha ao verificar notificações:',error);button.textContent='Tentar novamente';status.textContent='Não foi possível verificar as notificações agora.';button.disabled=false}
+}
+async function removePushSubscription(){
+  if(!pushSupported()||!db||!user)return;
+  try{
+    const registration=await navigator.serviceWorker.ready;
+    const subscription=await registration.pushManager.getSubscription();
+    if(!subscription)return;
+    const {error}=await db.from('push_subscriptions').delete().eq('user_id',user.id).eq('endpoint',subscription.endpoint);
+    if(error)throw error;
+    await subscription.unsubscribe();
+  }catch(error){console.error('Falha ao desativar notificações:',error);throw error}
+}
+$('#push-button').onclick=async()=>{
+  const button=$('#push-button'),status=$('#push-status');
+  if(button.disabled||profile?.role!=='admin')return;
+  button.disabled=true;
+  try{
+    if(button.dataset.enabled==='true'){
+      await removePushSubscription();
+      notify('Notificações desativadas neste celular.');
+    }else{
+      const permission=await Notification.requestPermission();
+      if(permission!=='granted'){status.textContent='Permissão negada. Libere as notificações nas configurações do celular.';return}
+      const registration=await navigator.serviceWorker.ready;
+      const subscription=await registration.pushManager.getSubscription()||await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:vapidKeyBytes(VAPID_PUBLIC_KEY)});
+      const keys=subscription.toJSON().keys;
+      if(!keys?.p256dh||!keys?.auth)throw Error('Chaves de inscrição ausentes.');
+      const {error}=await db.from('push_subscriptions').upsert({user_id:user.id,endpoint:subscription.endpoint,p256dh:keys.p256dh,auth_key:keys.auth},{onConflict:'endpoint'});
+      if(error)throw error;
+      notify('Notificações ativadas neste celular.');
+    }
+  }catch(error){console.error('Falha ao configurar notificações:',error);status.textContent='Não foi possível configurar as notificações. Tente novamente.'}
+  finally{if(profile?.role==='admin')await refreshPushStatus()}
+};
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&profile?.role==='admin')void refreshPushStatus()});
 $('#login-form').addEventListener('submit',async e=>{
   e.preventDefault();
   if(!db){setLoginMessage('A conexão de autenticação não foi inicializada. Atualize a página e tente novamente.');return}
@@ -106,7 +166,7 @@ $('#password-recovery-form').addEventListener('submit',async e=>{
   passwordRecoveryMode=false;await db.auth.signOut();$('#new-password').value='';$('#confirm-password').value='';
   setLoginView('login');setLoginMessage('Senha definida com sucesso. Entre com sua nova senha.',false);
 });
-$('#logout-button').onclick=async()=>{await db.auth.signOut();notify('Você saiu do app.')};
+$('#logout-button').onclick=async()=>{let pushCleanupFailed=false;if(profile?.role==='admin'){try{await removePushSubscription()}catch{pushCleanupFailed=true}}await db.auth.signOut();notify(pushCleanupFailed?'Você saiu, mas não foi possível desativar os avisos neste celular.':'Você saiu do app.')};
 
 function updateEngineerRowButtons(){
   const rows=[...$('#engineer-registration-rows').querySelectorAll('.engineer-registration-row')];
@@ -174,7 +234,8 @@ async function loadProjects(preferredId){
   select.innerHTML='<option value="">Selecione uma obra</option>'+projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
   const importSelect=$('#import-project-select');
   if(importSelect)importSelect.innerHTML='<option value="">Selecione uma obra</option>'+projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
-  const requestedId=preferredId||selectedProject;
+  const requestedId=preferredId||notificationProjectId||selectedProject;
+  notificationProjectId=null;
   const requested=allProjects.find(p=>p.id===requestedId);
   const canonical=requested&&projects.find(p=>projectNameKey(p.name)===projectNameKey(requested.name));
   const wanted=canonical?.id||projects[0]?.id||'';
