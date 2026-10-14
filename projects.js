@@ -190,11 +190,25 @@ $('#project-list').addEventListener('click',async event=>{
   if(action==='add-engineers')openAddEngineers(project);
 });
 $('#back-to-app').onclick=()=>{window.location.href='./index.html'};
-$('#logout-button').onclick=async()=>{if(db)await db.auth.signOut();window.location.href='./index.html'};
+$('#logout-button').onclick=async()=>{
+  if(db&&adminProfile&&'serviceWorker' in navigator){
+    try{
+      const registration=await navigator.serviceWorker.getRegistration('./');
+      const subscription=await registration?.pushManager?.getSubscription();
+      if(subscription){
+        const {error}=await db.from('push_subscriptions').delete().eq('user_id',adminProfile.id).eq('endpoint',subscription.endpoint);
+        const unsubscribed=await subscription.unsubscribe();
+        if(error||!unsubscribed)throw error||Error('Inscrição de notificações não removida.');
+      }
+    }catch(error){console.error('Falha ao desativar notificações:',error)}
+  }
+  if(db)await db.auth.signOut({scope:'local'});
+  window.location.href='./index.html';
+};
 $('#refresh-projects').onclick=()=>loadProjects();
 async function start(){
   if(!window.supabase||!cfg?.url||!cfg?.publishableKey){showPageMessage('Não consegui carregar a conexão do Supabase.',true);return}
-  db=window.supabase.createClient(cfg.url,cfg.publishableKey);
+  db=window.supabase.createClient(cfg.url,cfg.publishableKey,{auth:{persistSession:true,autoRefreshToken:true}});
   db.auth.onAuthStateChange(event=>{if(event==='SIGNED_OUT')window.location.href='./index.html'});
   const {data:{session}}=await db.auth.getSession();
   if(!session){window.location.href='./index.html';return}

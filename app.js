@@ -57,19 +57,39 @@ function setLoginView(view){
   if(view==='forgot'){$('#forgot-email').value=$('#login-email').value;setRecoveryMessage('')}
   if(view==='recovery')setRecoveryMessage('');
 }
+function showSessionRetry(message){$('#session-loading-message').textContent=message;$('#retry-session').hidden=false;$('#session-loading').hidden=false;$('#login-screen').hidden=true;$('#app-main').hidden=true;$('#logout-button').hidden=true}
+$('#retry-session').onclick=async()=>{
+  const button=$('#retry-session');button.disabled=true;$('#session-loading-message').textContent='Restaurando sua sessão…';
+  try{
+    const {data,error}=await db.auth.getSession();
+    if(error)throw error;
+    if(data?.session?.user)await enterApp(data.session.user);
+    else{$('#session-loading').hidden=true;$('#login-screen').hidden=false}
+  }catch(error){console.error('Falha ao restaurar sessão:',error);showSessionRetry('A conexão falhou. Confira a internet e tente novamente.')}
+  finally{button.disabled=false}
+};
 async function start(){
-  if(!window.supabase||!cfg?.url||!cfg?.publishableKey){setLoginMessage('Não consegui carregar a conexão do Supabase. Atualize a página ou confira a configuração.');return}
-  db=window.supabase.createClient(cfg.url,cfg.publishableKey);
-  if(passwordRecoveryMode)setLoginView('recovery');
+  if(!window.supabase||!cfg?.url||!cfg?.publishableKey){$('#session-loading').hidden=true;$('#login-screen').hidden=false;setLoginMessage('Não consegui carregar a conexão do Supabase. Atualize a página ou confira a configuração.');return}
+  db=window.supabase.createClient(cfg.url,cfg.publishableKey,{auth:{persistSession:true,autoRefreshToken:true}});
+  if(passwordRecoveryMode){$('#session-loading').hidden=true;$('#login-screen').hidden=false;setLoginView('recovery')}
   db.auth.onAuthStateChange((event,session)=>{
-    if(event==='PASSWORD_RECOVERY'){passwordRecoveryMode=true;setLoginView('recovery');return}
+    if(event==='PASSWORD_RECOVERY'){passwordRecoveryMode=true;$('#session-loading').hidden=true;$('#login-screen').hidden=false;setLoginView('recovery');return}
     if(passwordRecoveryMode)return;
-    if((event==='INITIAL_SESSION'||event==='SIGNED_IN')&&session?.user)void enterApp(session.user);
+    if((event==='INITIAL_SESSION'||event==='SIGNED_IN'||event==='TOKEN_REFRESHED')&&session?.user){
+      const loadId=authLoadId;
+      setTimeout(()=>{if(!passwordRecoveryMode&&loadId===authLoadId)void enterApp(session.user)},0);
+    }
     else if(event==='SIGNED_OUT')leaveApp();
   });
+  try{
+    const {data,error}=await db.auth.getSession();
+    if(passwordRecoveryMode)return;
+    if(data?.session?.user)await enterApp(data.session.user);
+    else if(!user){if(error)showSessionRetry('A conexão falhou. Confira a internet e tente novamente.');else{$('#session-loading').hidden=true;$('#login-screen').hidden=false}}
+  }catch(error){console.error('Falha ao restaurar sessão:',error);if(!user)showSessionRetry('A conexão falhou. Confira a internet e tente novamente.')}
 }
-async function enterApp(authUser){if(user?.id===authUser.id)return;const loadId=++authLoadId;user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',authUser.id).maybeSingle();if(loadId!==authLoadId)return;if(error||!p){leaveApp();setLoginMessage('Perfil não encontrado. Execute schema.sql e confirme seu perfil no Supabase.');return}profile=p;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-tools').hidden=p.role!=='admin';$('#open-assign-engineer').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'&&loadId===authLoadId){await loadSubmissions();void refreshPushStatus()} }
-function leaveApp(){authLoadId++;projectLoadId++;if($('#update-review-dialog').open)$('#update-review-dialog').close();user=null;profile=null;projects=[];tasks=[];selectedProject=null;latestUpdateProjectId=null;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
+async function enterApp(authUser){if(user?.id===authUser.id)return;const loadId=++authLoadId;user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',authUser.id).maybeSingle();if(loadId!==authLoadId)return;if(error){user=null;profile=null;projects=[];tasks=[];selectedProject=null;showSessionRetry('Não foi possível carregar os dados da conta. Confira a internet e tente novamente.');return}if(!p){leaveApp();setLoginMessage('Perfil não encontrado. Confirme seu cadastro no Supabase.');return}profile=p;$('#session-loading').hidden=true;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-tools').hidden=p.role!=='admin';$('#open-assign-engineer').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'&&loadId===authLoadId){await loadSubmissions();void refreshPushStatus()} }
+function leaveApp(){authLoadId++;projectLoadId++;if($('#update-review-dialog').open)$('#update-review-dialog').close();user=null;profile=null;projects=[];tasks=[];selectedProject=null;latestUpdateProjectId=null;$('#session-loading').hidden=true;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
 function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
 function vapidKeyBytes(value){const base64=value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(base64),char=>char.charCodeAt(0))}
 async function refreshPushStatus(){
@@ -102,8 +122,8 @@ async function removePushSubscription(){
     const subscription=await registration.pushManager.getSubscription();
     if(!subscription)return;
     const {error}=await db.from('push_subscriptions').delete().eq('user_id',user.id).eq('endpoint',subscription.endpoint);
-    if(error)throw error;
-    await subscription.unsubscribe();
+    const unsubscribed=await subscription.unsubscribe();
+    if(error||!unsubscribed)throw error||Error('Não foi possível cancelar a inscrição neste aparelho.');
   }catch(error){console.error('Falha ao desativar notificações:',error);throw error}
 }
 $('#push-button').onclick=async()=>{
@@ -163,10 +183,10 @@ $('#password-recovery-form').addEventListener('submit',async e=>{
   const {error}=await db.auth.updateUser({password});
   button.disabled=false;
   if(error){setRecoveryMessage('Não foi possível atualizar a senha. Solicite um novo link e tente novamente.');return}
-  passwordRecoveryMode=false;await db.auth.signOut();$('#new-password').value='';$('#confirm-password').value='';
+  passwordRecoveryMode=false;history.replaceState(null,'',location.pathname+location.search);await db.auth.signOut({scope:'local'});$('#new-password').value='';$('#confirm-password').value='';
   setLoginView('login');setLoginMessage('Senha definida com sucesso. Entre com sua nova senha.',false);
 });
-$('#logout-button').onclick=async()=>{let pushCleanupFailed=false;if(profile?.role==='admin'){try{await removePushSubscription()}catch{pushCleanupFailed=true}}await db.auth.signOut();notify(pushCleanupFailed?'Você saiu, mas não foi possível desativar os avisos neste celular.':'Você saiu do app.')};
+$('#logout-button').onclick=async()=>{let pushCleanupFailed=false;if(profile?.role==='admin'){try{await removePushSubscription()}catch{pushCleanupFailed=true}}await db.auth.signOut({scope:'local'});notify(pushCleanupFailed?'Você saiu, mas não foi possível desativar os avisos neste celular.':'Você saiu do app.')};
 
 function updateEngineerRowButtons(){
   const rows=[...$('#engineer-registration-rows').querySelectorAll('.engineer-registration-row')];

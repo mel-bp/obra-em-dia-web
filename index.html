@@ -21,7 +21,10 @@
       <div class="user"><span class="avatar" id="avatar">?</span><span id="user-label">Entre para continuar</span><button id="logout-button" class="button secondary" hidden>Sair</button></div>
     </header>
 
-    <section id="login-screen" class="login-screen">
+    <section id="session-loading" class="login-screen" aria-live="polite">
+      <div class="login-card"><h1>Obra em Dia</h1><p id="session-loading-message">Restaurando sua sessão…</p><button id="retry-session" class="button secondary" type="button" hidden>Tentar novamente</button></div>
+    </section>
+    <section id="login-screen" class="login-screen" hidden>
       <form id="login-form" class="login-card">
         <p class="eyebrow">ACESSO RESTRITO</p><h1>Obra em Dia</h1><p>Entre com o e-mail convidado para ver suas obras.</p>
         <label for="login-email">E-mail</label><input id="login-email" type="email" autocomplete="username" required />
@@ -166,7 +169,7 @@
       </form>
     </dialog>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=admin-push-20261014" defer></script>
+    <script src="app.js?v=session-20261014" defer></script>
     <script>
       if ('serviceWorker' in navigator) {
         let refreshingAfterWorkerUpdate = false;
