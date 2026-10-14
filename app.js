@@ -1,5 +1,5 @@
 const cfg=window.OBRA_SUPABASE,body=document.querySelector('#schedule-body'),toast=document.querySelector('#toast');
-let db=null,user=null,profile=null,projects=[],tasks=[],activeFilter='all',selectedProject=null,latestUpdateProjectId=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite'),projectLoadId=0,authLoadId=0,xlsxPromise=null,pendingSubmission=null,notificationProjectId=new URLSearchParams(location.search).get('project');
+let db=null,user=null,profile=null,projects=[],tasks=[],submissions=[],submissionProjectNames=new Map(),activeFilter='all',selectedProject=null,latestUpdateProjectId=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite'),projectLoadId=0,authLoadId=0,submissionLoadId=0,xlsxPromise=null,pendingSubmission=null,notificationProjectId=new URLSearchParams(location.search).get('project');
 let logoLoadId=0;
 const VAPID_PUBLIC_KEY='BBtoMj-PNwjcJaxWmYzToLm8nmAS61dqZorAnEL2ZhkMOQy4GV98M7BfHAiPrch4Y1Iuor50c8Ksy-rCZ09j5SU';
 const $=selector=>document.querySelector(selector),pendingChange=t=>!t.summary&&t.actual!==t.originalActual,submittedChange=t=>!t.summary&&t.originalActual!==t.initialActual,changed=t=>submittedChange(t)||pendingChange(t);
@@ -90,7 +90,7 @@ async function start(){
   }catch(error){console.error('Falha ao restaurar sessão:',error);if(!user)showSessionRetry('A conexão falhou. Confira a internet e tente novamente.')}
 }
 async function enterApp(authUser){if(user?.id===authUser.id)return;const loadId=++authLoadId;user=authUser;const {data:p,error}=await db.from('profiles').select('id,email,display_name,role').eq('id',authUser.id).maybeSingle();if(loadId!==authLoadId)return;if(error){user=null;profile=null;projects=[];tasks=[];selectedProject=null;showSessionRetry('Não foi possível carregar os dados da conta. Confira a internet e tente novamente.');return}if(!p){leaveApp();setLoginMessage('Perfil não encontrado. Confirme seu cadastro no Supabase.');return}profile=p;$('#session-loading').hidden=true;$('#login-screen').hidden=true;$('#app-main').hidden=false;$('#logout-button').hidden=false;$('#avatar').textContent=(p.display_name||p.email||'?').slice(0,2).toUpperCase();$('#user-label').textContent=p.display_name||p.email;$('#role-label').textContent=p.role==='admin'?'Planejamento':'Engenheiro';$('#admin-notification-setup').hidden=p.role!=='admin';$('#push-shortcut').hidden=true;$('#admin-tools').hidden=p.role!=='admin';$('#open-assign-engineer').hidden=p.role!=='admin';$('#admin-submissions').hidden=p.role!=='admin';$('#engineer-panel').hidden=p.role==='admin';$('#export-button').hidden=p.role!=='admin';await loadProjects();if(p.role==='admin'&&loadId===authLoadId){await loadSubmissions();void refreshPushStatus()} }
-function leaveApp(){authLoadId++;projectLoadId++;if($('#update-review-dialog').open)$('#update-review-dialog').close();user=null;profile=null;projects=[];tasks=[];selectedProject=null;latestUpdateProjectId=null;showProjectLogo(null);$('#session-loading').hidden=true;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
+function leaveApp(){authLoadId++;projectLoadId++;submissionLoadId++;if($('#update-review-dialog').open)$('#update-review-dialog').close();user=null;profile=null;projects=[];tasks=[];submissions=[];submissionProjectNames=new Map();selectedProject=null;latestUpdateProjectId=null;showProjectLogo(null);$('#admin-submissions').open=false;$('#submission-list').textContent='';$('#session-loading').hidden=true;$('#app-main').hidden=true;$('#login-screen').hidden=false;$('#logout-button').hidden=true;$('#project-select').innerHTML='<option value="">Selecione uma obra</option>';if(!passwordRecoveryMode)setLoginView('login');render()}
 function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
 function vapidKeyBytes(value){const base64=value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(base64),char=>char.charCodeAt(0))}
 async function refreshPushStatus(){
@@ -642,7 +642,81 @@ $('#engineer-assignment-form').addEventListener('submit',async event=>{
   }
 });
 
-async function loadSubmissions(){const {data:s,error}=await db.from('submissions').select('id,project_id,submitted_by,submitted_at').order('submitted_at',{ascending:false}).limit(20);if(error){$('#submission-list').textContent=error.message;return}if(!s?.length){$('#submission-list').textContent='Nenhuma atualização recebida ainda.';return}const projectIds=[...new Set(s.map(x=>x.project_id))],userIds=[...new Set(s.map(x=>x.submitted_by))];const [{data:p},{data:u}]=await Promise.all([db.from('projects').select('id,name').in('id',projectIds),db.from('profiles').select('id,email,display_name').in('id',userIds)]);const pm=new Map((p||[]).map(x=>[x.id,x.name])),um=new Map((u||[]).map(x=>[x.id,x.display_name||x.email]));$('#submission-list').innerHTML=s.map(x=>`<div class="submission-row"><span><b>${esc(pm.get(x.project_id)||'Obra')}</b><br><small>${esc(um.get(x.submitted_by)||'Engenheiro')}</small></span><small>${new Date(x.submitted_at).toLocaleString('pt-BR')}</small></div>`).join('')}
+async function loadSubmissions(){
+  const loadId=++submissionLoadId;
+  const {data:rows,error}=await fetchAllRows((from,to)=>db.from('submissions')
+    .select('id,project_id,submitted_by,submitted_at')
+    .order('submitted_at',{ascending:false}).order('id').range(from,to));
+  if(loadId!==submissionLoadId)return;
+  if(error){$('#submission-list').textContent='Não foi possível carregar as atualizações: '+error.message;return}
+  submissions=rows||[];
+  if(!submissions.length){submissionProjectNames=new Map();$('#submission-list').textContent='Nenhuma atualização recebida ainda.';return}
+  const projectIds=[...new Set(submissions.map(item=>item.project_id))];
+  const userIds=[...new Set(submissions.map(item=>item.submitted_by))];
+  const [{data:projectRows,error:projectError},{data:people,error:peopleError}]=await Promise.all([
+    db.from('projects').select('id,name').in('id',projectIds),
+    db.from('profiles').select('id,email,display_name').in('id',userIds)
+  ]);
+  if(loadId!==submissionLoadId)return;
+  if(projectError||peopleError){$('#submission-list').textContent='Não foi possível carregar os detalhes das atualizações.';return}
+  const names=new Map((projectRows||[]).map(item=>[item.id,item.name]));
+  submissionProjectNames=names;
+  const authors=new Map((people||[]).map(item=>[item.id,item.display_name||item.email]));
+  $('#submission-list').innerHTML=submissions.map(item=>`<div class="submission-row">
+    <div class="submission-info"><strong>${esc(names.get(item.project_id)||'Obra')}</strong><small>${esc(authors.get(item.submitted_by)||'Engenheiro')}</small></div>
+    <div class="submission-actions"><time datetime="${esc(item.submitted_at)}">${esc(new Date(item.submitted_at).toLocaleString('pt-BR'))}</time><button class="button secondary submission-export" type="button" data-submission-id="${esc(item.id)}" aria-label="Baixar Excel da atualização de ${esc(names.get(item.project_id)||'Obra')} em ${esc(new Date(item.submitted_at).toLocaleString('pt-BR'))}">Baixar Excel</button></div>
+  </div>`).join('');
+}
+async function downloadSubmissionExcel(submission,button){
+  button.disabled=true;
+  button.textContent='Gerando Excel…';
+  try{
+    const {data:firstItem,error:firstError}=await db.from('submission_items').select('activity_id')
+      .eq('submission_id',submission.id).order('activity_id').limit(1).maybeSingle();
+    if(firstError||!firstItem)throw firstError||Error('Esta atualização não tem atividades para exportar.');
+    const {data:reference,error:referenceError}=await db.from('activities').select('project_id,source_file')
+      .eq('id',firstItem.activity_id).maybeSingle();
+    if(referenceError||!reference||reference.project_id!==submission.project_id||!reference.source_file)
+      throw referenceError||Error('Não encontrei o cronograma original desta atualização.');
+    const sourceFile=reference.source_file;
+    const [itemsResult,activitiesResult,fileResult]=await Promise.all([
+      fetchAllRows((from,to)=>db.from('submission_items').select('activity_id,actual_pct')
+        .eq('submission_id',submission.id).order('activity_id').range(from,to)),
+      fetchAllRows((from,to)=>db.from('activities')
+        .select('id,is_summary,initial_actual_pct,source_sheet,source_row,source_actual_column,sort_order')
+        .eq('project_id',submission.project_id).eq('source_file',sourceFile)
+        .order('sort_order').order('id').range(from,to)),
+      db.storage.from('schedule-files').download(`${submission.project_id}/${sourceFile}`)
+    ]);
+    if(itemsResult.error)throw itemsResult.error;
+    if(activitiesResult.error)throw activitiesResult.error;
+    if(fileResult.error||!fileResult.data)throw fileResult.error||Error('O arquivo original não está disponível.');
+    const values=new Map((itemsResult.data||[]).map(item=>[item.activity_id,Number(item.actual_pct)]));
+    const activities=activitiesResult.data||[];
+    if(!activities.length)throw Error('Não encontrei as atividades deste cronograma.');
+    if(activities.some(activity=>!activity.is_summary&&!values.has(activity.id))||values.size!==activities.filter(activity=>!activity.is_summary).length)
+      throw Error('Os dados desta atualização estão incompletos para gerar o Excel.');
+    const exportTasks=activities.map(activity=>({
+      sourceSheet:activity.source_sheet,sourceRow:activity.source_row,sourceActualColumn:activity.source_actual_column,
+      summary:activity.is_summary,initialActual:Number(activity.initial_actual_pct),
+      originalActual:activity.is_summary?Number(activity.initial_actual_pct):values.get(activity.id)
+    }));
+    const XLSX=await loadXlsx();
+    const workbook=XLSX.read(await fileResult.data.arrayBuffer(),{type:'array',raw:false,cellDates:true});
+    updateExportWorkbook(XLSX,workbook,exportTasks);
+    const projectName=submissionProjectNames.get(submission.project_id)||'Obra';
+    const timestamp=new Date(submission.submitted_at).toISOString().slice(0,19).replace(/[:T]/g,'-');
+    XLSX.writeFile(workbook,`${projectName.replace(/[\\/:*?"<>|]/g,'_')}_atualizacao_${timestamp}UTC_${submission.id.slice(0,8)}.xlsx`);
+    notify('Excel desta atualização baixado.');
+  }catch(error){notify('Não foi possível baixar o Excel desta atualização. '+(error?.message||'Tente novamente.'))}
+  finally{button.disabled=false;button.textContent='Baixar Excel'}
+}
+$('#submission-list').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-submission-id]');
+  if(!button||button.disabled||profile?.role!=='admin')return;
+  const submission=submissions.find(item=>item.id===button.dataset.submissionId);
+  if(submission)void downloadSubmissionExcel(submission,button);
+});
 function updateExportWorkbook(XLSX,workbook,scheduleTasks){
   const tasksBySheet=new Map();
   for(const task of scheduleTasks){

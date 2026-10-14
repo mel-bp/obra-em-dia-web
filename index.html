@@ -10,7 +10,7 @@
     <title>Obra em Dia — Controle de Cronograma</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css?v=project-admins-20261014" />
+    <link rel="stylesheet" href="styles.css?v=received-updates-20261014" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
     <script src="supabase/config.js" defer></script>
   </head>
@@ -76,7 +76,11 @@
           <button id="import-button" class="button primary">Importar/atualizar cronograma</button>
         </div>
       </section>
-      <section id="admin-submissions" class="admin-submissions" hidden><h2>Atualizações recebidas</h2><div id="submission-list"></div></section>      <section class="metrics" aria-label="Resumo do cronograma">
+      <details id="admin-submissions" class="admin-submissions" hidden>
+        <summary>Atualizações recebidas</summary>
+        <div id="submission-list"></div>
+      </details>
+      <section class="metrics" aria-label="Resumo do cronograma">
         <article><span>% Global</span><strong id="planned-total">—</strong><div class="track"><i id="global-bar" style="width:0%"></i></div></article>
         <article><span>Término previsto</span><strong id="planned-finish">—</strong></article>
         <article class="metric-author"><span>Última atualização</span><strong id="last-update">Nenhum envio ainda</strong><small id="last-update-engineer" hidden></small><button id="export-button" class="button secondary" type="button" disabled>Baixar Excel atualizado</button></article>
@@ -171,7 +175,7 @@
       </form>
     </dialog>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=project-admins-20261014" defer></script>
+    <script src="app.js?v=received-updates-20261014" defer></script>
     <script>
       if ('serviceWorker' in navigator) {
         let refreshingAfterWorkerUpdate = false;
