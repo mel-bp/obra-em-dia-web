@@ -166,7 +166,7 @@
       </form>
     </dialog>
     <div id="engineer-panel" class="engineer-panel" hidden>
-      <div><b>Visão do engenheiro</b><span>Atualize o avanço executado e envie para o planejamento.</span></div>
+      <div><b>Visão do engenheiro</b><span id="draft-status" role="status" aria-live="polite">O que você digitar será salvo só para você até enviar.</span></div>
       <button id="send-update" class="button primary" type="button">Enviar atualização</button>
     </div>
     <dialog id="update-review-dialog" class="project-registration-dialog update-review-dialog" aria-labelledby="update-review-title" aria-describedby="update-review-intro">
@@ -180,7 +180,7 @@
       </form>
     </dialog>
     <div id="toast" role="status"></div>
-    <script src="app.js?v=notification-bell-20261014" defer></script>
+    <script src="app.js?v=private-drafts-20261016" defer></script>
     <script>
       if ('serviceWorker' in navigator) {
         let refreshingAfterWorkerUpdate = false;

@@ -1,6 +1,10 @@
 const cfg=window.OBRA_SUPABASE,body=document.querySelector('#schedule-body'),toast=document.querySelector('#toast');
 let db=null,user=null,profile=null,projects=[],tasks=[],submissions=[],submissionProjectNames=new Map(),activeFilter='all',selectedProject=null,latestUpdateProjectId=null,originalWorkbook=null,originalFileName='',scheduleMetadataCache=new Map(),plannedFinishDate='',passwordRecoveryMode=location.hash.includes('type=recovery')||location.hash.includes('type=invite'),projectLoadId=0,authLoadId=0,submissionLoadId=0,xlsxPromise=null,pendingSubmission=null,notificationProjectId=new URLSearchParams(location.search).get('project');
 let logoLoadId=0;
+const DRAFT_STORAGE_PREFIX='obra-em-dia-draft-v1:';
+const DRAFT_SAVE_DELAY=500;
+const DRAFT_BATCH_SIZE=100;
+const draftStates=new Map();
 const VAPID_PUBLIC_KEY='BBtoMj-PNwjcJaxWmYzToLm8nmAS61dqZorAnEL2ZhkMOQy4GV98M7BfHAiPrch4Y1Iuor50c8Ksy-rCZ09j5SU';
 const $=selector=>document.querySelector(selector),pendingChange=t=>!t.summary&&t.actual!==t.originalActual,submittedChange=t=>!t.summary&&t.originalActual!==t.initialActual,changed=t=>submittedChange(t)||pendingChange(t);
 const esc=v=>String(v??'').replace(/[&<>\'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -23,6 +27,88 @@ async function fetchAllRows(queryPage){
     from+=batchSize*PAGE_SIZE;
   }
 }
+function draftStateFor(userId,projectId){
+  const key=DRAFT_STORAGE_PREFIX+userId+':'+projectId;
+  if(draftStates.has(key))return draftStates.get(key);
+  const pending=new Map();
+  try{
+    const saved=JSON.parse(localStorage.getItem(key)||'{}');
+    if(saved&&typeof saved==='object'&&!Array.isArray(saved))for(const [id,value] of Object.entries(saved)){
+      if(!/^[0-9a-f-]{36}$/i.test(id))continue;
+      if(value===null||typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=100)pending.set(id,value);
+    }
+  }catch(error){console.warn('Não foi possível ler o rascunho neste aparelho.',error)}
+  const state={key,userId,projectId,pending,recent:new Map(pending),timer:null,saving:null,submitting:false};
+  draftStates.set(key,state);
+  return state;
+}
+function restoredActual(activityId,originalActual,draftValues,draftState){
+  if(draftState?.recent.has(activityId)){
+    const recent=draftState.recent.get(activityId);
+    return recent===null?originalActual:recent;
+  }
+  return draftValues.has(activityId)?draftValues.get(activityId):originalActual;
+}
+function persistDraftBackup(state){
+  try{
+    if(state.pending.size)localStorage.setItem(state.key,JSON.stringify(Object.fromEntries(state.pending)));
+    else localStorage.removeItem(state.key);
+  }catch(error){console.warn('Não foi possível guardar o rascunho neste aparelho.',error)}
+}
+function showDraftStatus(state,message){
+  if(profile?.role==='admin'||selectedProject!==state.projectId||user?.id!==state.userId)return;
+  $('#draft-status').textContent=message;
+}
+function scheduleDraftSave(state,delay=DRAFT_SAVE_DELAY){
+  clearTimeout(state.timer);
+  state.timer=setTimeout(()=>{state.timer=null;void flushDraft(state)},delay);
+}
+async function flushDraft(state){
+  clearTimeout(state.timer);
+  state.timer=null;
+  if(state.submitting)return true;
+  if(state.saving)return state.saving;
+  if(!state.pending.size)return true;
+  state.saving=(async()=>{
+    while(state.pending.size&&!state.submitting){
+      const batch=[...state.pending].slice(0,DRAFT_BATCH_SIZE);
+      const upserts=batch.filter(([,value])=>value!==null).map(([activityId,actual])=>({user_id:state.userId,project_id:state.projectId,activity_id:activityId,actual_pct:actual}));
+      const deletes=batch.filter(([,value])=>value===null).map(([activityId])=>activityId);
+      try{
+        if(upserts.length){
+          const {error}=await db.from('activity_drafts').upsert(upserts,{onConflict:'user_id,activity_id'});
+          if(error)throw error;
+        }
+        if(deletes.length){
+          const {error}=await db.from('activity_drafts').delete().eq('user_id',state.userId).eq('project_id',state.projectId).in('activity_id',deletes);
+          if(error)throw error;
+        }
+      }catch(error){
+        console.warn('Não foi possível sincronizar o rascunho.',error?.message||error);
+        showDraftStatus(state,'Falha ao salvar na sua conta. Confira a conexão antes de sair.');
+        return false;
+      }
+      for(const [activityId,value] of batch)if(state.pending.get(activityId)===value)state.pending.delete(activityId);
+      persistDraftBackup(state);
+    }
+    if(!state.submitting)showDraftStatus(state,'Rascunho salvo na sua conta. Só você pode vê-lo até enviar.');
+    return true;
+  })();
+  try{return await state.saving}finally{state.saving=null}
+}
+function queueDraftChange(task){
+  if(!user||!selectedProject||profile?.role==='admin')return;
+  const state=draftStateFor(user.id,selectedProject);
+  const value=pendingChange(task)?task.actual:null;
+  state.pending.set(task.id,value);
+  state.recent.set(task.id,value);
+  persistDraftBackup(state);
+  showDraftStatus(state,'Salvando rascunho privado…');
+  scheduleDraftSave(state);
+}
+window.addEventListener('online',()=>{for(const state of draftStates.values())if(state.pending.size)void flushDraft(state)});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')for(const state of draftStates.values())if(state.pending.size)void flushDraft(state)});
+window.addEventListener('pagehide',()=>{for(const state of draftStates.values())if(state.pending.size)persistDraftBackup(state)});
 function loadXlsx(){
   if(window.XLSX)return Promise.resolve(window.XLSX);
   if(!xlsxPromise)xlsxPromise=new Promise((resolve,reject)=>{
@@ -357,7 +443,8 @@ async function loadProject(projectId){
   selectedProject=projectId;
   latestUpdateProjectId=null;
   const project=projects.find(p=>p.id===projectId);
-  if(!project){showProjectLogo(null);tasks=[];plannedFinishDate='';populateDimensionFilters();$('#export-button').disabled=true;$('#send-update').disabled=true;$('#open-assign-engineer').disabled=true;render();return}
+  if(!project){showProjectLogo(null);tasks=[];plannedFinishDate='';populateDimensionFilters();$('#export-button').disabled=true;$('#send-update').disabled=true;$('#open-assign-engineer').disabled=true;$('#draft-status').textContent='O que você digitar será salvo só para você até enviar.';render();return}
+  const draftState=profile?.role==='admin'?null:draftStateFor(user.id,projectId);
   void showProjectLogo(project);
   $('#open-assign-engineer').disabled=false;
   $('#project-name').innerHTML=`<span class="dot"></span> ${esc(project.name)} <small>• ${project.source_file?'cronograma carregado':'obra'}</small>`;
@@ -368,23 +455,33 @@ async function loadProject(projectId){
   populateDimensionFilters();
   render();
   $('#table-help').textContent='Carregando atividades…';
+  if(draftState)showDraftStatus(draftState,'Carregando seu rascunho privado…');
   body.innerHTML='<tr><td colspan="6" class="empty-state">Carregando atividades…</td></tr>';
-  const [activityResult,progressResult]=await Promise.all([
+  const [activityResult,progressResult,draftResult]=await Promise.all([
     fetchAllRows((from,to)=>db.from('activities').select('id,sort_order,activity_id,wbs,name,is_summary,planned_pct,initial_actual_pct,source_sheet,source_row,source_actual_column,macro,sector,activity_local,source_macro_column,source_sector_column,source_local_column').eq('project_id',projectId).eq('is_current',true).order('sort_order').order('id').range(from,to)),
-    fetchAllRows((from,to)=>db.rpc('latest_schedule_progress',{p_project_id:projectId}).order('activity_id').range(from,to))
+    fetchAllRows((from,to)=>db.rpc('latest_schedule_progress',{p_project_id:projectId}).order('activity_id').range(from,to)),
+    draftState?fetchAllRows((from,to)=>db.from('activity_drafts').select('activity_id,actual_pct').eq('user_id',draftState.userId).eq('project_id',projectId).order('activity_id').range(from,to)):Promise.resolve({data:[],error:null})
   ]);
   if(loadId!==projectLoadId)return;
-  const loadError=activityResult.error?'Falha ao carregar atividades: '+activityResult.error.message:progressResult.error?'Falha ao carregar atualizações: '+progressResult.error.message:'';
+  const loadError=activityResult.error?'Falha ao carregar atividades: '+activityResult.error.message:progressResult.error?'Falha ao carregar atualizações: '+progressResult.error.message:draftResult.error?'Falha ao recuperar seu rascunho: '+draftResult.error.message:'';
   if(loadError){$('#table-help').textContent='Não foi possível carregar o cronograma.';body.innerHTML='<tr><td colspan="6" class="empty-state">'+esc(loadError)+'</td></tr>';notify(loadError);return}
   const activities=activityResult.data||[],progress=progressResult.data||[];
   const latest=progress.length?{id:progress[0].submission_id,submitted_at:progress[0].submitted_at,submitted_by:progress[0].submitted_by}:null;
   latestUpdateProjectId=latest?projectId:null;
   $('#export-button').disabled=!project.source_file||!latest;
   const values=new Map(progress.map(item=>[item.activity_id,Number(item.actual_pct)]));
+  const draftValues=new Map((draftResult.data||[]).map(item=>[item.activity_id,Number(item.actual_pct)]));
+  if(draftState){
+    const activityIds=new Set(activities.map(activity=>activity.id));
+    for(const activityId of draftState.pending.keys())if(!activityIds.has(activityId))draftState.pending.delete(activityId);
+    for(const activityId of draftState.recent.keys())if(!activityIds.has(activityId))draftState.recent.delete(activityId);
+    persistDraftBackup(draftState);
+  }
   plannedFinishDate='';
   tasks=activities.map(a=>{
-    const actual=values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct);
-    return {id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),initialActual:Number(a.initial_actual_pct),actual,originalActual:actual,sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column,macro:a.macro??'',sector:a.sector??'',local:a.activity_local??'',sourceMacroColumn:a.source_macro_column,sourceSectorColumn:a.source_sector_column,sourceLocalColumn:a.source_local_column};
+    const originalActual=values.has(a.id)?values.get(a.id):Number(a.initial_actual_pct);
+    const actual=restoredActual(a.id,originalActual,draftValues,draftState);
+    return {id:a.id,sortOrder:a.sort_order,activityId:a.activity_id,wbs:a.wbs||'',name:a.name,summary:a.is_summary,plan:Number(a.planned_pct),initialActual:Number(a.initial_actual_pct),actual,originalActual,sourceSheet:a.source_sheet,sourceRow:a.source_row,sourceActualColumn:a.source_actual_column,macro:a.macro??'',sector:a.sector??'',local:a.activity_local??'',sourceMacroColumn:a.source_macro_column,sourceSectorColumn:a.source_sector_column,sourceLocalColumn:a.source_local_column};
   });
   populateDimensionFilters();
   $('#send-update').disabled=!tasks.some(t=>!t.summary);
@@ -393,6 +490,10 @@ async function loadProject(projectId){
   $('#last-update-engineer').hidden=!latest;
   $('#table-help').textContent=latest?'Percentuais do envio mais recente.':'Cronograma original; aguardando a primeira atualização.';
   render();
+  if(draftState){
+    showDraftStatus(draftState,draftState.pending.size?'Sincronizando rascunho privado…':draftState.recent.size||draftValues.size?'Rascunho recuperado da sua conta. Só você pode vê-lo até enviar.':'O que você digitar será salvo só para você até enviar.');
+    if(draftState.pending.size)scheduleDraftSave(draftState,0);
+  }
   if(latest)void db.rpc('latest_project_update_author',{p_project_id:projectId}).then(({data:authorRows,error})=>{
     if(loadId!==projectLoadId)return;
     if(error){if(latest.submitted_by!==profile?.id)console.warn('Não foi possível carregar o nome do responsável pela última atualização.',error.message);}
@@ -478,7 +579,18 @@ function render(){
   $('#planned-total').textContent=globalPercent===null?'—':globalPercent+'%';$('#global-bar').style.width=globalPercent===null?'0%':Math.max(0,Math.min(100,globalPercent))+'%';
   $('#planned-finish').textContent=plannedFinishDate||'—';
 }
-body.addEventListener('change',e=>{if(!e.target.matches('.actual-input'))return;const t=tasks.find(x=>x.id===e.target.dataset.id);if(!t)return;t.actual=Math.max(0,Math.min(100,Number(e.target.value)||0));e.target.value=t.actual;if(activeFilter==='changed'){render();return}e.target.closest('tr')?.classList.toggle('changed',changed(t));$('#changed-count').textContent=tasks.filter(task=>changed(task)).length});
+function recordActualInput(input,finalized){
+  const task=tasks.find(item=>item.id===input.dataset.id);
+  if(!task||input.value===''&&!finalized)return;
+  const actual=Math.max(0,Math.min(100,Number(input.value)||0));
+  if(task.actual!==actual){task.actual=actual;queueDraftChange(task)}
+  if(finalized)input.value=actual;
+  input.closest('tr')?.classList.toggle('changed',changed(task));
+  $('#changed-count').textContent=tasks.filter(changed).length;
+  if(finalized&&activeFilter==='changed')render();
+}
+body.addEventListener('input',event=>{if(event.target.matches('.actual-input'))recordActualInput(event.target,false)});
+body.addEventListener('change',event=>{if(event.target.matches('.actual-input'))recordActualInput(event.target,true)});
 document.querySelectorAll('.filter').forEach(button=>button.onclick=()=>{activeFilter=button.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===button));render()});$('#search').oninput=render;document.querySelectorAll('.schedule-dimension-filters select').forEach(select=>select.onchange=render);
 const updateReviewDialog=$('#update-review-dialog');
 function closeUpdateReview(){pendingSubmission=null;if(updateReviewDialog.open)updateReviewDialog.close()}
@@ -492,7 +604,7 @@ $('#send-update').onclick=()=>{
   const changes=tasks.filter(pendingChange);
   if(!changes.length)return notify('Altere o avanço de pelo menos uma atividade antes de enviar.');
   const project=projects.find(p=>p.id===selectedProject);
-  pendingSubmission={projectId:selectedProject,items:tasks.filter(task=>!task.summary).map(task=>({activity_id:task.id,actual_pct:task.actual}))};
+  pendingSubmission={projectId:selectedProject,userId:user.id,taskList:tasks,items:tasks.filter(task=>!task.summary).map(task=>({activity_id:task.id,actual_pct:task.actual}))};
   $('#update-review-intro').textContent='Confira os avanços da obra '+(project?.name||'selecionada')+' antes de enviar ao planejamento.';
   $('#update-review-count').textContent=changes.length+' '+(changes.length===1?'atividade alterada':'atividades alteradas');
   $('#update-review-list').innerHTML=changes.map(task=>'<li class="update-review-item"><div><span class="update-review-id">Atividade '+esc(task.activityId)+'</span><strong>'+esc(task.name)+'</strong></div><span class="update-review-values">'+esc(task.originalActual)+'% <span aria-hidden="true">→</span> <b>'+esc(task.actual)+'%</b></span></li>').join('');
@@ -503,27 +615,39 @@ $('#update-review-form').addEventListener('submit',async event=>{
   event.preventDefault();
   if(!pendingSubmission||$('#confirm-update').disabled)return;
   const submission=pendingSubmission,button=$('#confirm-update'),message=$('#update-review-message');
+  const draftState=draftStateFor(submission.userId,submission.projectId);
   button.disabled=true;
   button.textContent='Enviando…';
   $('#cancel-update-review').disabled=true;
   $('#close-update-review').disabled=true;
   message.textContent='';
   try{
-    const {error}=await db.rpc('submit_progress',{target_project:submission.projectId,items:submission.items});
+    message.textContent='Concluindo o salvamento do rascunho…';
+    await flushDraft(draftState);
+    draftState.submitting=true;
+    message.textContent='Enviando ao planejamento…';
+    const {error}=await db.rpc('submit_progress_with_draft_clear',{target_project:submission.projectId,items:submission.items});
     if(error){message.textContent='Não foi possível enviar. '+error.message;return}
-    tasks.forEach(task=>task.originalActual=task.actual);
-    latestUpdateProjectId=submission.projectId;
-    $('#export-button').disabled=!projects.find(project=>project.id===submission.projectId)?.source_file;
-    $('#last-update').textContent=new Date().toLocaleDateString('pt-BR');
-    $('#last-update-engineer').textContent=profile?.display_name||profile?.email||'Nome não informado';
-    $('#last-update-engineer').hidden=false;
-    $('#table-help').textContent='Atualização enviada e registrada no histórico.';
-    render();
+    draftState.pending.clear();
+    draftState.recent.clear();
+    persistDraftBackup(draftState);
+    if(selectedProject===submission.projectId&&user?.id===submission.userId&&tasks===submission.taskList){
+      tasks.forEach(task=>task.originalActual=task.actual);
+      latestUpdateProjectId=submission.projectId;
+      $('#export-button').disabled=!projects.find(project=>project.id===submission.projectId)?.source_file;
+      $('#last-update').textContent=new Date().toLocaleDateString('pt-BR');
+      $('#last-update-engineer').textContent=profile?.display_name||profile?.email||'Nome não informado';
+      $('#last-update-engineer').hidden=false;
+      $('#table-help').textContent='Atualização enviada e registrada no histórico.';
+      render();
+      showDraftStatus(draftState,'Atualização enviada. Novas alterações serão salvas só para você.');
+    }
     closeUpdateReview();
     notify('Atualização enviada ao planejamento.');
   }catch(error){
     message.textContent='Não foi possível enviar. '+(error?.message||'Tente novamente.');
   }finally{
+    draftState.submitting=false;
     button.disabled=false;
     button.textContent='Confirmar envio';
     $('#cancel-update-review').disabled=false;
